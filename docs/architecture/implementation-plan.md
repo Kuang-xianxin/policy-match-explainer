@@ -17,6 +17,8 @@
 - 请求校验：使用 Zod 做后端运行时校验
 - 用户系统：第一版实现注册登录、历史企业画像和历史匹配记录保存
 - 权限要求：每个用户只能看到自己的企业画像、匹配记录和报告
+- 企业画像：选填字段也纳入类型和表单配置；可枚举字段使用单选、复选或多选控件，开放描述字段才使用文本输入
+- 自动补全：支持输入企业名称获取公开基础信息，生成画像草稿，用户确认后再保存和匹配
 - 政策数据：第一版直接采集龙华政府在线政策文件库
 - 报告方式：第一版输出网页文字报告，接入 DeepSeek API 辅助撰写，不做 Word/PDF 导出
 - 规则维护：第一版通过代码和种子数据维护，不做管理后台
@@ -199,14 +201,15 @@ export interface PolicyMatchResult {
 - `policy_applications`：申报窗口、申报入口和材料要求。
 - `users`：注册用户。
 - `enterprises`：企业画像。
+- `company_lookup_records`：企业名称查询和自动补全草稿。
 - `match_runs`：一次匹配任务。
 - `match_results`：每条政策的匹配结果。
 - `reports`：DeepSeek 生成的文字版综合评估报告。
 
 优先级：
 
-1. 先建 `users`、`enterprises`、`policies`、`policy_rules`、`match_runs`、`match_results`。
-2. 再补 `source_documents`、`policy_applications` 和龙华区政策采集脚本。
+1. 先建 `users`、`enterprises`、`company_lookup_records`、`policies`、`policy_rules`、`match_runs`、`match_results`。
+2. 再补 `source_documents`、`policy_applications`、企业自动补全接口和龙华区政策采集脚本。
 3. 最后接入 DeepSeek，生成并保存文字版 `reports`。
 
 ## 后端模块计划
@@ -222,6 +225,8 @@ export interface PolicyMatchResult {
 - `GET /api/policies/:id`：政策详情。
 - `POST /api/enterprises`：保存企业画像。
 - `GET /api/enterprises`：当前用户企业画像列表。
+- `POST /api/company-lookup/search`：按企业名称查询候选企业。
+- `POST /api/company-lookup/:id/import`：将自动补全草稿导入为企业画像草稿。
 - `POST /api/match-runs`：发起一次匹配。
 - `GET /api/match-runs/:id`：查看匹配结果。
 - `POST /api/match-runs/:id/report`：生成文字报告。
@@ -255,6 +260,8 @@ packages/matcher/src/
    - 资质荣誉
    - 经营和财务字段
    - 申报意向或偏好
+   - 可选择字段使用单选、复选或多选控件
+   - 不能枚举化的字段使用文本输入
 
 2. 匹配结果页
    - 总体评分
@@ -286,6 +293,13 @@ packages/matcher/src/
 6. 企业画像历史页
    - 只展示当前用户自己的企业画像
    - 支持基于历史画像再次发起匹配
+
+7. 企业名称自动补全页/弹窗
+   - 企业名称搜索
+   - 候选企业列表
+   - 企业画像草稿
+   - 自动补全字段来源和置信度展示
+   - 用户确认后保存
 
 ## 实施阶段计划
 
@@ -320,7 +334,21 @@ packages/matcher/src/
 - API 错误格式
 - 本地开发环境配置
 
-### 阶段 4：政策库 MVP
+### 阶段 4：企业画像表单和自动补全
+
+输出：
+
+- 字段控件配置。
+- 企业画像表单。
+- 企业画像保存 API。
+- 企业画像历史列表。
+- 企业名称查询接口。
+- 候选企业列表。
+- 自动补全画像草稿。
+- 自动补全字段来源标记。
+- 用户确认后保存画像。
+
+### 阶段 5：政策库 MVP
 
 输出：
 
@@ -332,18 +360,15 @@ packages/matcher/src/
 - 政策规则表
 - 政策详情页面
 
-### 阶段 5：企业画像和匹配引擎
+### 阶段 6：匹配引擎
 
 输出：
 
-- 企业画像表单
-- 企业画像保存 API
-- 企业画像历史列表
 - 规则评分函数
 - 匹配结果保存
 - 单元测试覆盖核心评分场景
 
-### 阶段 6：DeepSeek 文字报告
+### 阶段 7：DeepSeek 文字报告
 
 输出：
 
@@ -353,7 +378,7 @@ packages/matcher/src/
 - 报告保存和失败状态
 - 报告页面
 
-### 阶段 7：部署
+### 阶段 8：部署
 
 输出：
 
@@ -377,6 +402,8 @@ packages/matcher/src/
 - 报告中的命中条件和缺失条件是否来自同一次匹配结果。
 - API 请求体字段错误时是否返回统一校验错误。
 - 用户 A 不能查看用户 B 的企业画像、匹配结果和报告。
+- 用户 A 不能导入用户 B 的企业查询记录。
+- 自动补全字段未确认时不能直接进入匹配。
 - DeepSeek API 调用失败时结构化匹配结果仍可查看。
 
 ## 剩余实施配置问题
