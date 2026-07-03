@@ -395,6 +395,14 @@ pre {
   line-height: 1.7;
 }
 
+@media (max-width: 1180px) {
+  .profile-summary,
+  .supplement-grid,
+  .profile-grid {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+}
+
 @media (max-width: 980px) {
   .app-shell,
   .search-row,

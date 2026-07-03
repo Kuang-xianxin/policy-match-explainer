@@ -63,6 +63,29 @@ async function createManualProfile(token: string): Promise<string> {
   return created.body.enterprise_profile.id as string;
 }
 
+function completeGeneratedProfile(profile: EnterpriseProfile, overrides: Partial<EnterpriseProfile> = {}): EnterpriseProfile {
+  return {
+    ...profile,
+    employee_range: '50_100',
+    employee_count: 75,
+    revenue_range: '5m_20m',
+    revenue_last_year: 12000000,
+    profit_range: '500k_2m',
+    profit_last_year: 1000000,
+    tax_paid_range: 'lt_1m',
+    tax_paid_last_year: 500000,
+    rd_expense_range: '1m_5m',
+    rd_expense_last_year: 3000000,
+    rd_expense_ratio: 25,
+    rd_employee_range: '10_50',
+    rd_employee_count: 30,
+    project_budget_range: '1m_5m',
+    project_budget: 3000000,
+    tax_credit_level: 'A',
+    ...overrides
+  };
+}
+
 describe('policy match MVP flow', () => {
   beforeAll(async () => {
     await resetDatabase();
@@ -99,24 +122,7 @@ describe('policy match MVP flow', () => {
     expect(generated.body.enterprise_profile.company_name).toContain('龙华智造');
     expect(generated.body.enterprise_profile.revenue_range).toBe('unknown');
 
-    const confirmedProfile: EnterpriseProfile = {
-      ...generated.body.enterprise_profile,
-      employee_range: '50_100',
-      employee_count: 75,
-      revenue_range: '5m_20m',
-      revenue_last_year: 12000000,
-      profit_range: '500k_2m',
-      profit_last_year: 1000000,
-      tax_paid_range: 'lt_1m',
-      tax_paid_last_year: 500000,
-      rd_expense_range: '1m_5m',
-      rd_expense_last_year: 3000000,
-      rd_expense_ratio: 25,
-      rd_employee_range: '10_50',
-      rd_employee_count: 30,
-      project_budget_range: '1m_5m',
-      project_budget: 3000000
-    };
+    const confirmedProfile = completeGeneratedProfile(generated.body.enterprise_profile);
 
     const created = await request(app)
       .post('/api/enterprise-profiles')
@@ -140,6 +146,65 @@ describe('policy match MVP flow', () => {
       .send();
     expect(report.status).toBe(201);
     expect(report.body.report.content_text).toContain('综合结论');
+  });
+
+  it('handles a second demo company and recommends the specialized-new policy', async () => {
+    const token = await register('equipment@example.com');
+    const lookup = await request(app)
+      .post('/api/company-lookup/search')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ query_name: '专精特新智能装备' });
+    expect(lookup.status).toBe(200);
+    expect(lookup.body.candidates[0].company_name).toContain('专精特新');
+
+    const generated = await request(app)
+      .post(`/api/company-lookup/${lookup.body.candidates[0].lookup_id}/generate-profile`)
+      .set('Authorization', `Bearer ${token}`)
+      .send();
+    expect(generated.status).toBe(200);
+    expect(generated.body.enterprise_profile.has_specialized_new_sme).toBe(true);
+    expect(generated.body.enterprise_profile.project_budget_range).toBe('unknown');
+
+    const confirmedProfile = completeGeneratedProfile(generated.body.enterprise_profile, {
+      business_model: 'manufacturing',
+      project_direction: '智能制造',
+      has_specialized_new_sme: true
+    });
+    const created = await request(app)
+      .post('/api/enterprise-profiles')
+      .set('Authorization', `Bearer ${token}`)
+      .send(confirmedProfile);
+    expect(created.status).toBe(201);
+
+    const matchRun = await request(app)
+      .post('/api/match-runs')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ enterprise_profile_id: created.body.enterprise_profile.id });
+    expect(matchRun.status).toBe(201);
+    const specializedResult = matchRun.body.results.find((item: { policy: { title: string } }) =>
+      item.policy.title.includes('专精特新')
+    );
+    expect(specializedResult.final_level).toBe('recommended');
+    expect(specializedResult.baseline_score).toBe(100);
+  });
+
+  it('returns an empty candidate list for unknown company names', async () => {
+    const token = await register('unknown-company@example.com');
+    const lookup = await request(app)
+      .post('/api/company-lookup/search')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ query_name: '不存在的龙华企业样本' });
+
+    expect(lookup.status).toBe(200);
+    expect(lookup.body.candidates).toEqual([]);
+  });
+
+  it('requires authentication on protected routes', async () => {
+    const profiles = await request(app).get('/api/enterprise-profiles');
+    const lookup = await request(app).post('/api/company-lookup/search').send({ query_name: '龙华智造' });
+
+    expect(profiles.status).toBe(401);
+    expect(lookup.status).toBe(401);
   });
 
   it('prevents users from generating a profile from another user lookup record', async () => {
@@ -186,7 +251,16 @@ describe('policy match MVP flow', () => {
     const profileLeak = await request(app).get(`/api/enterprise-profiles/${profileId}`).set('Authorization', `Bearer ${tokenB}`);
     expect(profileLeak.status).toBe(404);
 
+    const matchLeak = await request(app)
+      .post('/api/match-runs')
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({ enterprise_profile_id: profileId });
+    expect(matchLeak.status).toBe(404);
+
     const runLeak = await request(app).get(`/api/match-runs/${runId}`).set('Authorization', `Bearer ${tokenB}`);
     expect(runLeak.status).toBe(404);
+
+    const reportLeak = await request(app).post(`/api/match-runs/${runId}/report`).set('Authorization', `Bearer ${tokenB}`).send();
+    expect(reportLeak.status).toBe(404);
   });
 });

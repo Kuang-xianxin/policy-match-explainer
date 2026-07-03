@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { RouterLink, RouterView, useRouter } from 'vue-router';
 import { FileText, LogOut, ShieldCheck, UserRoundPen } from 'lucide-vue-next';
 import { appState, loadAiStatus, logout } from './state/app-state';
@@ -10,6 +10,7 @@ const aiLabel = computed(() =>
 );
 
 onMounted(async () => {
+  window.addEventListener('policy-match-auth-expired', handleAuthExpired);
   await loadAiStatus();
   if (window.location.hash === '#match' || window.location.hash === '#report') {
     await router.replace('/results');
@@ -22,7 +23,16 @@ onMounted(async () => {
   }
 });
 
+onBeforeUnmount(() => {
+  window.removeEventListener('policy-match-auth-expired', handleAuthExpired);
+});
+
 function handleLogout() {
+  logout();
+  router.push('/login');
+}
+
+function handleAuthExpired() {
   logout();
   router.push('/login');
 }

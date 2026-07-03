@@ -10,6 +10,21 @@
 - 校验：Zod
 - 匹配：规则权重评分 + DeepSeek 复核增强
 
+## 本地数据库
+
+项目的 Docker PostgreSQL 绑定到本机 `15432`，避免和电脑上已有的 PostgreSQL `5432` 冲突：
+
+```bash
+DATABASE_URL=postgres://policy_user:policy_password@localhost:15432/policy_match
+```
+
+如果看到 `policy_user Password 认证失败`，通常说明后端连到了本机已有 PostgreSQL，而不是项目容器。优先执行：
+
+```bash
+npm run db:up
+npm run db:check
+```
+
 ## 企业画像输入方案
 
 当前 MVP 的企业画像采用“AI 辅助轻量生成 + 用户确认”的方式。用户输入企业名称或简称后，DeepSeek 负责生成规范化查询词；后端从本地龙华企业示例索引中返回候选企业；用户选择候选企业后，系统生成一份待确认画像草稿。
@@ -28,6 +43,7 @@ npm install
 
 ```bash
 npm run db:up
+npm run db:check
 ```
 
 3. 初始化数据库：
@@ -65,6 +81,7 @@ npm run build
 ```bash
 DEEPSEEK_API_KEY=
 DEEPSEEK_API_KET=
+DEEPSEEK_TIMEOUT_MS=15000
 ```
 
-你可以复制 `.env.example` 为 `.env`，然后在本地 `.env` 中填写自己的 key。也可以直接设置 Windows 用户/系统环境变量，后端会优先读取 `DEEPSEEK_API_KET`，再读取标准拼写 `DEEPSEEK_API_KEY`。没有配置 key 时，系统会使用明确标记为 `mock` 的本地 AI 结果，便于开发和测试。配置 API Key 后，后端会调用 DeepSeek Chat Completion API。
+你可以复制 `.env.example` 为 `.env`，然后在本地 `.env` 中填写自己的 key。也可以直接设置 Windows 用户/系统环境变量，后端会优先读取 `DEEPSEEK_API_KET`，再读取标准拼写 `DEEPSEEK_API_KEY`。没有配置 key 时，系统会使用明确标记为 `mock` 的本地 AI 结果，便于开发和测试。配置 API Key 后，后端会调用 DeepSeek Chat Completion API；如果调用超时或返回 JSON 不完整，会自动降级为 mock 结果，保证匹配流程不中断。

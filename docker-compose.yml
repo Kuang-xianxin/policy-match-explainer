@@ -7,11 +7,11 @@ services:
       POSTGRES_PASSWORD: policy_password
       POSTGRES_DB: policy_match
     ports:
-      - "5432:5432"
+      - "127.0.0.1:15432:5432"
     volumes:
       - policy_match_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U policy_user -d policy_match"]
+      test: ["CMD-SHELL", "PGPASSWORD=policy_password psql -U policy_user -d policy_match -c 'SELECT 1' >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 20

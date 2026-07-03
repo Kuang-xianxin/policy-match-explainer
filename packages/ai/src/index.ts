@@ -11,6 +11,7 @@ export interface AiConfig {
   apiKey?: string;
   model: string;
   baseUrl: string;
+  timeoutMs?: number;
 }
 
 export interface ExtractProfileInput {
@@ -35,8 +36,11 @@ function hasApiKey(config: AiConfig): boolean {
 }
 
 async function callDeepSeekJson<T>(config: AiConfig, systemPrompt: string, userPayload: unknown): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 15000);
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: 'POST',
+    signal: controller.signal,
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
       'Content-Type': 'application/json'
@@ -49,7 +53,7 @@ async function callDeepSeekJson<T>(config: AiConfig, systemPrompt: string, userP
         { role: 'user', content: JSON.stringify(userPayload) }
       ]
     })
-  });
+  }).finally(() => clearTimeout(timeout));
 
   if (!response.ok) {
     throw new Error(`DeepSeek request failed: ${response.status} ${await response.text()}`);
@@ -79,29 +83,41 @@ function mockCompanyLookupPlan(queryName: string): CompanyLookupPlan {
 export async function planCompanyLookup(queryName: string, config: AiConfig): Promise<CompanyLookupPlan> {
   if (!hasApiKey(config)) return mockCompanyLookupPlan(queryName);
 
-  const result = await callDeepSeekJson<Partial<CompanyLookupPlan>>(
-    config,
-    [
-      'You are an enterprise lookup query planner for a policy matching system.',
-      'You cannot browse the web and you must not invent company candidates or enterprise facts.',
-      'Only output a JSON query plan for backend data-source tools.',
-      'The backend will use local enterprise indexes or official public data providers to fetch raw company records.',
-      'Output JSON keys: normalized_query, search_keywords, recommended_sources, explanation.'
-    ].join('\n'),
-    { query_name: queryName }
-  );
-
   const fallback = mockCompanyLookupPlan(queryName);
-  const searchKeywords = uniqueNonEmpty(
-    Array.isArray(result.search_keywords) ? result.search_keywords.map(String) : fallback.search_keywords
-  );
+  let result: Partial<CompanyLookupPlan>;
+  try {
+    result = await callDeepSeekJson<Partial<CompanyLookupPlan>>(
+      config,
+      [
+        'You are an enterprise lookup query planner for a policy matching system.',
+        'You cannot browse the web and you must not invent company candidates or enterprise facts.',
+        'Only output a JSON query plan for backend data-source tools.',
+        'The backend will use local enterprise indexes or official public data providers to fetch raw company records.',
+        'Output JSON keys: normalized_query, search_keywords, recommended_sources, explanation.'
+      ].join('\n'),
+      { query_name: queryName }
+    );
+  } catch (error) {
+    return {
+      ...fallback,
+      explanation: `${fallback.explanation} DeepSeek query planning failed and mock fallback was used: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    };
+  }
+  const searchKeywords = uniqueNonEmpty([
+    fallback.normalized_query,
+    ...(Array.isArray(result.search_keywords) ? result.search_keywords.map(String) : fallback.search_keywords)
+  ]);
   const recommendedSources = uniqueNonEmpty(
     Array.isArray(result.recommended_sources)
       ? result.recommended_sources.map(String)
       : fallback.recommended_sources
   );
+  const normalizedQuery = String(result.normalized_query ?? fallback.normalized_query).trim();
   return {
-    normalized_query: String(result.normalized_query ?? fallback.normalized_query).trim() || fallback.normalized_query,
+    normalized_query:
+      normalizedQuery && !normalizedQuery.toLowerCase().includes('unknown') ? normalizedQuery : fallback.normalized_query,
     search_keywords: searchKeywords.length > 0 ? searchKeywords : fallback.search_keywords,
     recommended_sources: recommendedSources.length > 0 ? recommendedSources : fallback.recommended_sources,
     explanation: String(result.explanation ?? fallback.explanation),
@@ -188,16 +204,27 @@ export async function extractEnterpriseProfile(
 ): Promise<ExtractedProfileResult> {
   if (!hasApiKey(config)) return mockExtractProfile(input);
 
-  return callDeepSeekJson<ExtractedProfileResult>(
-    config,
-    [
-      '你是企业画像字段解耦助手。',
-      '只能从输入 rawPayload 中提取字段，低风险推断必须标记为 inferred。',
-      '不得编造员工数、营收、利润、纳税、研发、社保、项目预算等内部字段；没有证据时使用 0 和 unknown 区间。',
-      '必须输出 JSON，字段为 mapped_profile, field_sources, missing_fields, ai_confidence。'
-    ].join('\n'),
-    input
-  ).then((result) => ({ ...result, ai_mode: 'deepseek' }));
+  try {
+    const result = await callDeepSeekJson<Partial<ExtractedProfileResult>>(
+      config,
+      [
+        '你是企业画像字段解耦助手。',
+        '只能从输入 rawPayload 中提取字段，低风险推断必须标记为 inferred。',
+        '不得编造员工数、营收、利润、纳税、研发、社保、项目预算等内部字段；没有证据时使用 0 和 unknown 区间。',
+        '必须输出 JSON，字段为 mapped_profile, field_sources, missing_fields, ai_confidence。'
+      ].join('\n'),
+      input
+    );
+    return {
+      mapped_profile: result.mapped_profile ?? {},
+      field_sources: Array.isArray(result.field_sources) ? result.field_sources : [],
+      missing_fields: Array.isArray(result.missing_fields) ? result.missing_fields.map(String) : [],
+      ai_confidence: Number.isFinite(Number(result.ai_confidence)) ? Number(result.ai_confidence) : 0.5,
+      ai_mode: 'deepseek'
+    };
+  } catch {
+    return mockExtractProfile(input);
+  }
 }
 
 function mockReview(baseline: BaselineMatchResult): AiMatchReview {
@@ -229,22 +256,53 @@ export async function reviewPolicyMatch(
 ): Promise<AiMatchReview> {
   if (!hasApiKey(config)) return mockReview(baseline);
 
-  const result = await callDeepSeekJson<AiMatchReview>(
-    config,
-    [
-      '你是龙华区惠企政策匹配复核助手。',
-      '你只能基于企业画像、政策原文、政策规则和规则引擎基线结果解释。',
-      '硬性条件失败时不得把政策改成推荐。',
-      'ai_adjustment 必须在 -5 到 5 之间。',
-      '必须输出 JSON。'
-    ].join('\n'),
-    { profile, policy, baseline }
-  );
+  try {
+    const result = await callDeepSeekJson<AiMatchReview>(
+      config,
+      [
+        '你是龙华区惠企政策匹配复核助手。',
+        '你只能基于企业画像、政策原文、政策规则和规则引擎基线结果解释。',
+        '硬性条件失败时不得把政策改成推荐。',
+        'ai_adjustment 必须在 -5 到 5 之间。',
+        '必须输出 JSON。'
+      ].join('\n'),
+      { profile, policy, baseline }
+    );
+    const fallback = mockReview(baseline);
 
+    return {
+      ai_review_summary: String(result.ai_review_summary ?? fallback.ai_review_summary),
+      ai_explanation: String(result.ai_explanation ?? fallback.ai_explanation),
+      ai_missing_fields: Array.isArray(result.ai_missing_fields)
+        ? result.ai_missing_fields.map(String)
+        : fallback.ai_missing_fields,
+      ai_suggested_actions: Array.isArray(result.ai_suggested_actions)
+        ? result.ai_suggested_actions.map(String)
+        : fallback.ai_suggested_actions,
+      ai_confidence: Number.isFinite(Number(result.ai_confidence)) ? Number(result.ai_confidence) : fallback.ai_confidence,
+      ai_adjustment: Math.max(-5, Math.min(5, Number(result.ai_adjustment ?? 0))),
+      ai_mode: 'deepseek'
+    };
+  } catch {
+    return mockReview(baseline);
+  }
+}
+
+function mockReport(
+  profile: EnterpriseProfile,
+  results: Array<BaselineMatchResult & AiMatchReview>
+): { content_text: string; ai_mode: 'mock' } {
+  const recommended = results.filter((item) => item.baseline_level === 'recommended').length;
+  const potential = results.filter((item) => item.baseline_level === 'potential').length;
   return {
-    ...result,
-    ai_adjustment: Math.max(-5, Math.min(5, Number(result.ai_adjustment ?? 0))),
-    ai_mode: 'deepseek'
+    ai_mode: 'mock',
+    content_text: [
+      `综合结论：${profile.company_name} 当前画像显示具备龙华区政策匹配基础。`,
+      `推荐关注政策 ${recommended} 项，可能匹配政策 ${potential} 项。`,
+      '主要优势：企业位于深圳市龙华区，业务方向覆盖 AI、数据治理和软件服务，研发投入比例较高。',
+      '主要短板：正式申报前仍需核对政策原文、申报窗口、纳税证明、研发费用辅助账和项目预算材料。',
+      '下一步建议：优先处理推荐关注政策，补齐缺失字段后再复跑匹配。'
+    ].join('\n')
   };
 }
 
@@ -253,30 +311,22 @@ export async function generateReport(
   results: Array<BaselineMatchResult & AiMatchReview>,
   config: AiConfig
 ): Promise<{ content_text: string; ai_mode: 'deepseek' | 'mock' }> {
-  if (!hasApiKey(config)) {
-    const recommended = results.filter((item) => item.baseline_level === 'recommended').length;
-    const potential = results.filter((item) => item.baseline_level === 'potential').length;
-    return {
-      ai_mode: 'mock',
-      content_text: [
-        `综合结论：${profile.company_name} 当前画像显示具备龙华区政策匹配基础。`,
-        `推荐关注政策 ${recommended} 项，可能匹配政策 ${potential} 项。`,
-        '主要优势：企业位于深圳市龙华区，业务方向覆盖 AI、数据治理和软件服务，研发投入比例较高。',
-        '主要短板：正式申报前仍需核对政策原文、申报窗口、纳税证明、研发费用辅助账和项目预算材料。',
-        '下一步建议：优先处理推荐关注政策，补齐缺失字段后再复跑匹配。'
-      ].join('\n')
-    };
+  if (!hasApiKey(config)) return mockReport(profile, results);
+
+  try {
+    const result = await callDeepSeekJson<{ content_text: string }>(
+      config,
+      [
+        '你是企业惠企政策评估报告助手。',
+        '不得编造政策、申报入口或企业经营数据。',
+        '必须基于输入的匹配结果写出简洁中文报告，并输出 JSON: { "content_text": string }。'
+      ].join('\n'),
+      { profile, results }
+    );
+
+    if (!result.content_text || typeof result.content_text !== 'string') return mockReport(profile, results);
+    return { content_text: result.content_text, ai_mode: 'deepseek' };
+  } catch {
+    return mockReport(profile, results);
   }
-
-  const result = await callDeepSeekJson<{ content_text: string }>(
-    config,
-    [
-      '你是企业惠企政策评估报告助手。',
-      '不得编造政策、申报入口或企业经营数据。',
-      '必须基于输入的匹配结果写出简洁中文报告，并输出 JSON: { "content_text": string }。'
-    ].join('\n'),
-    { profile, results }
-  );
-
-  return { content_text: result.content_text, ai_mode: 'deepseek' };
 }

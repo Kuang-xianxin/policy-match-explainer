@@ -23,6 +23,8 @@ const errorText = ref('');
 const queryName = ref('');
 const isSearching = ref(false);
 const isGenerating = ref(false);
+const isSaving = ref(false);
+const isMatching = ref(false);
 const profile = computed(() => appState.draftProfile);
 
 const amountRangeOptions: Array<{ value: AmountRange; label: string }> = [
@@ -96,15 +98,21 @@ async function doGenerate(lookupId: string) {
 
 async function doSaveManual() {
   errorText.value = '';
+  if (isSaving.value) return;
+  isSaving.value = true;
   try {
     await saveManualProfile();
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '保存画像失败';
+  } finally {
+    isSaving.value = false;
   }
 }
 
 async function doSaveAndMatch() {
   errorText.value = '';
+  if (isMatching.value) return;
+  isMatching.value = true;
   try {
     const saved = await saveManualProfile();
     if (!saved) return;
@@ -112,16 +120,22 @@ async function doSaveAndMatch() {
     await router.push('/results');
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '保存并匹配失败';
+  } finally {
+    isMatching.value = false;
   }
 }
 
 async function doMatch(profileId: string) {
   errorText.value = '';
+  if (isMatching.value) return;
+  isMatching.value = true;
   try {
     await runMatch(profileId);
     await router.push('/results');
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '匹配失败';
+  } finally {
+    isMatching.value = false;
   }
 }
 </script>
@@ -187,8 +201,12 @@ async function doMatch(profileId: string) {
           <p class="hint">公开字段自动带入；营收、研发、纳税、项目预算等非公开字段只选区间，也可以选未知。</p>
         </div>
         <div class="button-row">
-          <button class="outline-button" @click="doSaveManual"><Save :size="16" />保存画像</button>
-          <button @click="doSaveAndMatch"><PlayCircle :size="16" />保存并匹配</button>
+          <button class="outline-button" :disabled="isSaving || isMatching" @click="doSaveManual">
+            <Save :size="16" />{{ isSaving ? '保存中' : '保存画像' }}
+          </button>
+          <button :disabled="isSaving || isMatching" @click="doSaveAndMatch">
+            <PlayCircle :size="16" />{{ isMatching ? '匹配中' : '保存并匹配' }}
+          </button>
         </div>
       </div>
 
@@ -381,15 +399,18 @@ async function doMatch(profileId: string) {
     <section class="panel">
       <div class="section-title">
         <h2>已保存画像</h2>
-        <button class="outline-button" @click="loadProfiles"><Search :size="16" />刷新</button>
+        <button class="outline-button" :disabled="appState.isLoadingProfiles" @click="loadProfiles">
+          <Search :size="16" />{{ appState.isLoadingProfiles ? '刷新中' : '刷新' }}
+        </button>
       </div>
 
       <div class="profile-list">
-        <button v-for="item in appState.profiles" :key="item.id" @click="doMatch(item.id)">
+        <button v-for="item in appState.profiles" :key="item.id" :disabled="isMatching" @click="doMatch(item.id)">
           <span><strong>{{ item.company_name }}</strong><small>{{ item.credit_code }}</small></span>
           <PlayCircle :size="18" />
         </button>
       </div>
+      <p v-if="!appState.isLoadingProfiles && appState.profiles.length === 0" class="hint">暂无已保存画像。</p>
     </section>
   </section>
 </template>

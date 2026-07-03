@@ -47,6 +47,7 @@ export const appState = reactive({
   user: null as UserResponse['user'] | null,
   statusText: '',
   aiStatus: null as AiStatus | null,
+  isLoadingProfiles: false,
   lookupPlan: null as LookupPlan | null,
   candidates: [] as Candidate[],
   generatedProfileMeta: null as Omit<GenerateProfileResponse, 'enterprise_profile'> | null,
@@ -59,6 +60,12 @@ export const appState = reactive({
 
 export async function loadAiStatus(): Promise<void> {
   appState.aiStatus = await api<AiStatus>('/api/ai/status', '');
+}
+
+export async function loadCurrentUser(): Promise<void> {
+  if (!appState.token) return;
+  const data = await api<{ user: UserResponse['user'] }>('/api/auth/me', appState.token);
+  appState.user = data.user;
 }
 
 export async function login(email: string, password: string): Promise<void> {
@@ -111,6 +118,7 @@ export async function searchCompany(queryName: string): Promise<void> {
   appState.lookupPlan = data.lookup_plan;
   appState.candidates = data.candidates;
   appState.generatedProfileMeta = null;
+  appState.draftProfile = null;
   appState.statusText = `找到 ${data.candidates.length} 个候选企业`;
 }
 
@@ -144,8 +152,13 @@ export async function saveManualProfile(): Promise<EnterpriseProfileRecord | nul
 
 export async function loadProfiles(): Promise<void> {
   if (!appState.token) return;
-  const data = await api<{ enterprise_profiles: EnterpriseProfileRecord[] }>('/api/enterprise-profiles', appState.token);
-  appState.profiles = data.enterprise_profiles;
+  appState.isLoadingProfiles = true;
+  try {
+    const data = await api<{ enterprise_profiles: EnterpriseProfileRecord[] }>('/api/enterprise-profiles', appState.token);
+    appState.profiles = data.enterprise_profiles;
+  } finally {
+    appState.isLoadingProfiles = false;
+  }
 }
 
 export async function runMatch(profileId: string): Promise<void> {
@@ -169,6 +182,31 @@ export async function generateReport(): Promise<void> {
   );
   appState.report = data.report;
   appState.statusText = '报告已生成';
+}
+
+export async function loadLatestMatchRun(): Promise<void> {
+  if (!appState.token) return;
+  const data = await api<{ match_runs: MatchRun[] }>('/api/match-runs', appState.token);
+  const latest = data.match_runs[0];
+  if (latest) await loadMatchRun(latest.id);
+}
+
+export async function loadMatchRun(runId: string): Promise<void> {
+  const data = await api<{ match_run: MatchRun; results: MatchResult[] }>(`/api/match-runs/${runId}`, appState.token);
+  appState.matchRun = data.match_run;
+  appState.matchResults = data.results;
+  appState.report = null;
+  await loadReportForRun(runId);
+}
+
+export async function loadReportForRun(runId: string): Promise<void> {
+  try {
+    const data = await api<{ report: ReportRecord }>(`/api/match-runs/${runId}/report`, appState.token);
+    appState.report = data.report;
+  } catch (error) {
+    if (error instanceof Error && !error.message.includes('Report not found')) throw error;
+    appState.report = null;
+  }
 }
 
 export function startManualProfile(): void {

@@ -28,12 +28,30 @@ function aiConfig() {
   return {
     apiKey: env.deepseekApiKey,
     model: env.deepseekModel,
-    baseUrl: env.deepseekBaseUrl
+    baseUrl: env.deepseekBaseUrl,
+    timeoutMs: env.deepseekTimeoutMs
   };
 }
 
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function databaseErrorResponse(error: unknown): { code?: string; message: string } | null {
+  const dbError = error as { code?: string; message?: string };
+  const message = dbError.message ?? '';
+  const code = dbError.code;
+  if (
+    code === '28P01' ||
+    code === '28000' ||
+    code === '3D000' ||
+    code === 'ECONNREFUSED' ||
+    message.toLowerCase().includes('password authentication failed') ||
+    message.toLowerCase().includes('connect econnrefused')
+  ) {
+    return { code, message };
+  }
+  return null;
 }
 
 const customerTypes = ['government', 'enterprise', 'individual', 'overseas', 'other'] as const;
@@ -167,9 +185,10 @@ export function createApp() {
   app.use(cors({ origin: env.corsOrigin }));
   app.use(express.json({ limit: '1mb' }));
 
-  app.get('/health', (_req, res) => {
+  app.get('/health', asyncHandler(async (_req, res) => {
+    await pool.query('SELECT 1');
     res.json({ ok: true, database: 'postgresql' });
-  });
+  }));
 
   app.get('/api/ai/status', (_req, res) => {
     res.json({
@@ -461,7 +480,16 @@ export function createApp() {
       `,
       [req.params.id, req.user.id]
     );
-    res.json({ match_run: run, results: results.rows });
+    const normalizedResults = results.rows.map((row) => ({
+      ...row,
+      policy: {
+        title: row.title,
+        category: row.category,
+        source_url: row.source_url,
+        policy_text: row.policy_text
+      }
+    }));
+    res.json({ match_run: run, results: normalizedResults });
   }));
 
   app.post('/api/match-runs/:id/report', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
@@ -508,6 +536,19 @@ export function createApp() {
 
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    const dbError = databaseErrorResponse(error);
+    if (dbError) {
+      res.status(503).json({
+        error_code: 'DATABASE_CONNECTION_ERROR',
+        message:
+          '数据库连接失败。请确认 Docker PostgreSQL 已启动，且 DATABASE_URL 指向 postgres://policy_user:***@localhost:15432/policy_match。',
+        details: {
+          code: dbError.code,
+          hint: '运行 npm run db:up 后再运行 npm run db:check、npm run db:migrate、npm run db:seed。'
+        }
+      });
+      return;
+    }
     if (message.includes('duplicate key')) {
       res.status(409).json({ error_code: 'VALIDATION_ERROR', message: 'Resource already exists.' });
       return;

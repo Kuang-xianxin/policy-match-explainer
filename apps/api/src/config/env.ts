@@ -58,11 +58,12 @@ const isTestRuntime = process.env.VITEST === 'true' || process.env.NODE_ENV === 
 const deepseekApiKey = isTestRuntime ? {} : readEnvValue(['DEEPSEEK_API_KET', 'DEEPSEEK_API_KEY']);
 
 export const env = {
-  databaseUrl: process.env.DATABASE_URL ?? 'postgres://policy_user:policy_password@localhost:5432/policy_match',
+  databaseUrl: process.env.DATABASE_URL ?? 'postgres://policy_user:policy_password@localhost:15432/policy_match',
   port: Number(process.env.API_PORT ?? 4000),
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
   deepseekApiKey: deepseekApiKey.value,
   deepseekApiKeySource: deepseekApiKey.source,
   deepseekModel: process.env.DEEPSEEK_MODEL ?? 'deepseek-v4-flash',
-  deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
+  deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
+  deepseekTimeoutMs: Number(process.env.DEEPSEEK_TIMEOUT_MS ?? 15000)
 };

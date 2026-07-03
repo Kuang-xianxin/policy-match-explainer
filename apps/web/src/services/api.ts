@@ -66,6 +66,10 @@ export async function api<T>(path: string, token: string, options: RequestInit =
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(`${apiBaseUrl}${path}`, { ...options, headers });
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    localStorage.removeItem('policy_match_token');
+    window.dispatchEvent(new CustomEvent('policy-match-auth-expired'));
+  }
   if (!response.ok) throw new Error(data.message ?? `HTTP ${response.status}`);
   return data as T;
 }

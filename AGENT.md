@@ -18,6 +18,13 @@
 - The matcher must keep deterministic rule scoring as the baseline. DeepSeek remains available for policy match review and report writing after the user saves a confirmed profile.
 - Any future Longhua enterprise registry must be a separate optional local searchable index/cache built from authorized providers, not an unauthorized copied full registry or a crawler that bypasses public query restrictions.
 
+## Local Database Architecture
+
+- Local development PostgreSQL should use the project Docker service on host port `15432`, not the machine-global PostgreSQL service on `5432`.
+- Default local `DATABASE_URL` is `postgres://policy_user:policy_password@localhost:15432/policy_match`.
+- If database authentication fails for `policy_user`, first run `npm run db:up` and `npm run db:check`; do not change the password of an unrelated local PostgreSQL installation.
+- `db:reset` is guarded and should only run against the project development/test database. Use `ALLOW_DB_RESET=true` only after confirming `DATABASE_URL`.
+
 ## Round Log Requirement
 
 The project must keep a JSON Lines log file named `rounds.jsonl`.
