@@ -58,6 +58,7 @@ npm run build
 
 ```bash
 DEEPSEEK_API_KEY=
+DEEPSEEK_API_KET=
 ```
 
-你可以复制 `.env.example` 为 `.env`，然后在本地 `.env` 中填写自己的 key。没有配置 `DEEPSEEK_API_KEY` 时，系统会使用明确标记为 `mock` 的本地 AI 结果，便于开发和测试。配置 API Key 后，后端会调用 DeepSeek Chat Completion API。
+你可以复制 `.env.example` 为 `.env`，然后在本地 `.env` 中填写自己的 key。也可以直接设置 Windows 用户/系统环境变量，后端会优先读取 `DEEPSEEK_API_KET`，再读取标准拼写 `DEEPSEEK_API_KEY`。没有配置 key 时，系统会使用明确标记为 `mock` 的本地 AI 结果，便于开发和测试。配置 API Key 后，后端会调用 DeepSeek Chat Completion API。

@@ -48,7 +48,8 @@ export function createApp() {
       provider: 'deepseek',
       configured: Boolean(env.deepseekApiKey && env.deepseekApiKey.trim().length > 0),
       model: env.deepseekModel,
-      mode: env.deepseekApiKey ? 'deepseek' : 'mock'
+      mode: env.deepseekApiKey ? 'deepseek' : 'mock',
+      key_source: env.deepseekApiKeySource ?? null
     });
   });
 
