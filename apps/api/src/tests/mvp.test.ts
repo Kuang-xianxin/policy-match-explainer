@@ -33,6 +33,10 @@ describe('policy match MVP flow', () => {
     const health = await request(app).get('/health');
     expect(health.body.database).toBe('postgresql');
 
+    const aiStatus = await request(app).get('/api/ai/status');
+    expect(aiStatus.body.provider).toBe('deepseek');
+    expect(aiStatus.body).toHaveProperty('configured');
+
     const lookupSearch = await request(app)
       .post('/api/company-lookup/search')
       .set('Authorization', `Bearer ${token}`)

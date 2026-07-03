@@ -43,6 +43,15 @@ export function createApp() {
     res.json({ ok: true, database: 'postgresql' });
   });
 
+  app.get('/api/ai/status', (_req, res) => {
+    res.json({
+      provider: 'deepseek',
+      configured: Boolean(env.deepseekApiKey && env.deepseekApiKey.trim().length > 0),
+      model: env.deepseekModel,
+      mode: env.deepseekApiKey ? 'deepseek' : 'mock'
+    });
+  });
+
   app.post('/api/auth/register', asyncHandler(async (req, res) => {
     const body = registerSchema.parse(req.body);
     const result = await pool.query(

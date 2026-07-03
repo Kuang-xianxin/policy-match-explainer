@@ -49,7 +49,7 @@ textarea {
 }
 
 textarea {
-  min-height: 76px;
+  min-height: 78px;
   resize: vertical;
 }
 
@@ -76,6 +76,8 @@ textarea {
   display: flex;
   align-items: center;
   gap: 12px;
+  color: white;
+  text-decoration: none;
 }
 
 .brand strong,
@@ -93,15 +95,26 @@ nav {
   gap: 8px;
 }
 
-nav a {
+nav a,
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   border-radius: 6px;
   color: white;
   padding: 9px 10px;
   text-decoration: none;
 }
 
-nav a:hover {
+nav a.router-link-active,
+nav a:hover,
+.ghost-button:hover {
   background: #214b45;
+}
+
+.ghost-button {
+  border-color: #315d56;
+  background: transparent;
 }
 
 .status {
@@ -114,83 +127,104 @@ nav a:hover {
 }
 
 .workspace {
-  display: grid;
-  gap: 16px;
   padding: 24px;
 }
 
-.band {
+.page {
+  display: grid;
+  gap: 16px;
+}
+
+.page-heading,
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page-heading {
   border: 1px solid #d9e1de;
   border-radius: 8px;
   background: white;
   padding: 20px;
 }
 
-.auth-grid {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(320px, 480px);
-  gap: 24px;
-  align-items: start;
-}
-
-h1,
+.page-heading h1,
+.page-heading p,
 h2,
 p {
   margin-top: 0;
 }
 
-h1 {
+.page-heading h1 {
   margin-bottom: 8px;
   font-size: 28px;
 }
 
-h2 {
-  margin-bottom: 0;
-  font-size: 20px;
+.panel,
+.auth-panel,
+.note-panel {
+  border: 1px solid #d9e1de;
+  border-radius: 8px;
+  background: white;
+  padding: 20px;
 }
 
-.auth-form,
-.lookup-bar,
-.actions {
+.auth-panel {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 520px;
+  gap: 12px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: #44504c;
+  font-size: 13px;
+}
+
+.button-row,
+.lookup-bar {
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
-.auth-form input:first-child,
 .lookup-bar input {
-  grid-column: 1 / -1;
-}
-
-.section-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  min-width: min(460px, 100%);
+  flex: 1;
 }
 
 .candidate-list,
 .profile-list {
   display: grid;
   gap: 8px;
-  margin: 14px 0;
+  margin-top: 14px;
 }
 
 .candidate-list button,
 .profile-list button {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  justify-items: start;
+  display: flex;
+  justify-content: space-between;
   border-color: #d6e3df;
   background: #f7fbfa;
   color: #1d2327;
   text-align: left;
 }
 
+.profile-list span,
+.candidate-list span,
+.candidate-list small,
+.profile-list small {
+  display: block;
+}
+
 .candidate-list small,
 .profile-list small,
-.result-row small {
+.result-row small,
+.hint,
+.note-panel small {
   color: #65736f;
 }
 
@@ -200,26 +234,14 @@ h2 {
   gap: 12px;
 }
 
-.profile-grid label {
-  display: grid;
-  gap: 6px;
-  color: #44504c;
-  font-size: 13px;
-}
-
 .profile-grid label:has(textarea) {
   grid-column: span 2;
-}
-
-.results-table {
-  display: grid;
-  gap: 8px;
 }
 
 .result-head,
 .result-row {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) 120px 90px 120px;
+  grid-template-columns: minmax(260px, 1fr) 120px 130px 120px;
   gap: 12px;
   align-items: start;
 }
@@ -233,13 +255,31 @@ h2 {
 
 .result-row {
   border-bottom: 1px solid #eef2f0;
-  padding: 12px 0;
+  padding: 14px 0;
 }
 
 .result-row p {
   grid-column: 1 / -1;
   margin-bottom: 0;
   color: #3f4b47;
+}
+
+.empty-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mode-pill {
+  border-radius: 999px;
+  background: #e5f2ee;
+  color: #1f6f63;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.error-text {
+  color: #b42318;
 }
 
 pre {
@@ -249,7 +289,10 @@ pre {
 }
 
 @media (max-width: 980px) {
-  .app-shell {
+  .app-shell,
+  .profile-grid,
+  .result-head,
+  .result-row {
     grid-template-columns: 1fr;
   }
 
@@ -258,16 +301,9 @@ pre {
     height: auto;
   }
 
-  .auth-grid,
-  .profile-grid,
-  .result-head,
-  .result-row {
-    grid-template-columns: 1fr;
-  }
-
-  .auth-form,
-  .lookup-bar,
-  .actions {
-    grid-template-columns: 1fr;
+  .page-heading,
+  .section-title {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

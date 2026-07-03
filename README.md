@@ -37,7 +37,11 @@ npm run db:seed
 npm run dev
 ```
 
-前端地址：http://localhost:5173
+前端页面：
+
+- 登录页：http://localhost:5173/login
+- 企业画像页：http://localhost:5173/profile
+- 匹配结果和报告页：http://localhost:5173/results
 
 后端地址：http://localhost:4000
 
@@ -48,4 +52,12 @@ npm test
 npm run build
 ```
 
-没有配置 `DEEPSEEK_API_KEY` 时，系统会使用明确标记为 `mock` 的本地 AI 结果，便于开发和测试。配置 API Key 后，后端会调用 DeepSeek Chat Completion API。
+## DeepSeek API Key
+
+仓库只保留空占位，不写入真实 key：
+
+```bash
+DEEPSEEK_API_KEY=
+```
+
+你可以复制 `.env.example` 为 `.env`，然后在本地 `.env` 中填写自己的 key。没有配置 `DEEPSEEK_API_KEY` 时，系统会使用明确标记为 `mock` 的本地 AI 结果，便于开发和测试。配置 API Key 后，后端会调用 DeepSeek Chat Completion API。
