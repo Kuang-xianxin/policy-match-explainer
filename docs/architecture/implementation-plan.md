@@ -4,22 +4,23 @@
 
 ## 已确认方向
 
-本项目目标是建设一个企业政策匹配网站：用户注册登录后录入企业画像，系统根据龙华区政策库和匹配规则计算匹配结果，最后输出匹配解释和 DeepSeek 生成的文字版综合评估报告。
+本项目目标是建设一个企业政策匹配网站：用户注册登录后录入企业画像，或输入企业名称生成画像草稿；系统根据龙华区政策库、结构化规则、字段权重和 DeepSeek 复核增强能力计算匹配结果，最后输出匹配解释和 DeepSeek 生成的文字版综合评估报告。
 
 已确认技术栈：
 
 - 数据库：PostgreSQL
 - 前端：TypeScript + Vue 3
 - 后端：TypeScript + Express
-- 匹配逻辑：企业画像不同字段按不同权重打分，输出匹配结果和综合评估报告
+- 匹配逻辑：规则引擎先按企业画像不同字段权重打分，DeepSeek 再做匹配复核、解释增强和补充建议
 - 接口要求：类型必须规范，接口字段和关键字段类型要明确约束
 - API JSON 字段：使用 snake_case
 - 请求校验：使用 Zod 做后端运行时校验
 - 用户系统：第一版实现注册登录、历史企业画像和历史匹配记录保存
 - 权限要求：每个用户只能看到自己的企业画像、匹配记录和报告
 - 企业画像：选填字段也纳入类型和表单配置；可枚举字段使用单选、复选或多选控件，开放描述字段才使用文本输入
-- 自动补全：支持输入企业名称获取公开基础信息，生成画像草稿，用户确认后再保存和匹配
+- 自动补全：支持输入企业名称获取公开基础信息，并用 DeepSeek 将合法数据源返回内容解耦为画像草稿，用户确认后再保存和匹配
 - 政策数据：第一版直接采集龙华政府在线政策文件库
+- DeepSeek 边界：不把 DeepSeek 当作事实数据源，不让 DeepSeek 单独覆盖硬性规则，只用于字段解耦、匹配复核增强和报告撰写
 - 报告方式：第一版输出网页文字报告，接入 DeepSeek API 辅助撰写，不做 Word/PDF 导出
 - 规则维护：第一版通过代码和种子数据维护，不做管理后台
 
@@ -68,6 +69,21 @@
 - 稳定参与匹配的字段必须结构化成列或规则表。
 - 原始政策网页、原始企业画像快照可以保留在 `jsonb` 中用于追溯。
 
+### DeepSeek API
+
+适合本项目的原因：
+
+- 企业公开数据源返回格式不稳定，DeepSeek 可以把 `raw_payload` 解耦成结构化企业画像草稿。
+- 政策规则和企业画像字段较多，DeepSeek 可以对规则基线结果做语义复核，补充更易懂的解释和建议。
+- 文字报告需要自然语言总结，DeepSeek 比纯模板更适合。
+
+需要注意：
+
+- DeepSeek 不能作为企业事实数据源。企业名称查询、资质名单、信用信息仍要由后端接入合法官方或商业数据源。
+- DeepSeek 输出必须使用 JSON 模式或工具调用，并由 Zod 校验。
+- DeepSeek 匹配复核不能覆盖地区不符、重大违法、政策过期、资质缺失等硬性失败。
+- 财务、纳税、研发、社保、项目预算等内部字段没有可靠来源时必须留空并要求用户补充。
+
 ## 推荐总体架构
 
 建议采用单仓库多模块结构：
@@ -80,6 +96,7 @@ policy-match-explainer/
   packages/
     shared/              # 前后端共享类型、枚举、DTO、schema
     matcher/             # 政策匹配和评分逻辑
+    ai/                  # DeepSeek prompt、JSON schema 和调用封装
   prisma/                # 数据库 schema 和迁移，具体 ORM 仍可在编码前确认
   docs/
     architecture/
@@ -90,6 +107,7 @@ policy-match-explainer/
 
 - 前后端共享企业画像、政策标签、匹配结果等类型。
 - 匹配算法独立成模块，便于单元测试和后续替换。
+- DeepSeek 调用和 prompt 独立成模块，便于 Mock、重试和模型切换。
 - 数据库迁移、API 服务、前端页面都能在同一项目内管理。
 
 ## API 和类型规范方案
@@ -147,7 +165,7 @@ export interface PolicyMatchResult {
 }
 ```
 
-注意：具体字段以 `docs/product/prd.md` 的 v0.2 已确认稿为准。
+注意：具体字段以 `docs/product/prd.md` 的 v0.3 DeepSeek 画像与匹配增强补充稿为准。
 
 ## 匹配评分方案
 
@@ -162,7 +180,10 @@ export interface PolicyMatchResult {
 5. 逐条规则计算命中、未命中、信息不足。
 6. 按权重汇总得分。
 7. 生成匹配等级和解释。
-8. 保存本次输入快照、匹配结果和报告。
+8. 保存规则基线结果。
+9. 调用 DeepSeek 对企业画像、政策原文片段、政策规则和规则基线结果做复核增强。
+10. 校验 AI 复核 JSON，合并成最终展示结果。
+11. 保存本次输入快照、匹配结果、AI 复核结果和报告。
 
 ### 推荐评分模型
 
@@ -181,6 +202,8 @@ export interface PolicyMatchResult {
 - 普通条件命中：加对应权重。
 - 普通条件缺失：不加分，并计入缺失条件。
 - 用户未填写必要字段：标记为“需补充信息”，不直接判断为不匹配。
+- DeepSeek 复核：只允许在无硬性失败、AI 输出通过校验、引用证据明确时给出小幅分数调整或解释增强。
+- 最终结果：同时保存 `baseline_score`、`ai_adjustment`、`final_score`，不能只保存大模型结论。
 
 匹配等级建议：
 
@@ -189,7 +212,7 @@ export interface PolicyMatchResult {
 - `needs_more_info`：关键字段缺失，暂不能判断。
 - `not_matched`：硬性条件不满足或分数明显不足。
 
-阈值和权重需要你确认，不能直接替你定死。
+阈值和权重先按 `docs/product/prd.md` 的第一版配置落地，后续根据真实政策样本和测试结果再调整。
 
 ## 数据库设计计划
 
@@ -200,17 +223,18 @@ export interface PolicyMatchResult {
 - `policy_rules`：政策拆解后的匹配条件。
 - `policy_applications`：申报窗口、申报入口和材料要求。
 - `users`：注册用户。
-- `enterprises`：企业画像。
+- `enterprise_profiles`：企业画像。
 - `company_lookup_records`：企业名称查询和自动补全草稿。
 - `match_runs`：一次匹配任务。
-- `match_results`：每条政策的匹配结果。
+- `match_results`：每条政策的规则基线、AI 复核和最终展示结果。
 - `reports`：DeepSeek 生成的文字版综合评估报告。
 
 优先级：
 
-1. 先建 `users`、`enterprises`、`company_lookup_records`、`policies`、`policy_rules`、`match_runs`、`match_results`。
+1. 先建 `users`、`enterprise_profiles`、`company_lookup_records`、`policies`、`policy_rules`、`match_runs`、`match_results`。
 2. 再补 `source_documents`、`policy_applications`、企业自动补全接口和龙华区政策采集脚本。
-3. 最后接入 DeepSeek，生成并保存文字版 `reports`。
+3. 接入 DeepSeek 画像字段解耦和匹配复核。
+4. 最后接入 DeepSeek 文字报告，生成并保存 `reports`。
 
 ## 后端模块计划
 
@@ -223,12 +247,14 @@ export interface PolicyMatchResult {
 - `GET /api/auth/me`：当前用户。
 - `GET /api/policies`：政策列表。
 - `GET /api/policies/:id`：政策详情。
-- `POST /api/enterprises`：保存企业画像。
-- `GET /api/enterprises`：当前用户企业画像列表。
+- `POST /api/enterprise-profiles`：保存企业画像。
+- `GET /api/enterprise-profiles`：当前用户企业画像列表。
 - `POST /api/company-lookup/search`：按企业名称查询候选企业。
+- `POST /api/company-lookup/:id/ai-extract`：把合法数据源返回内容解耦为画像草稿。
 - `POST /api/company-lookup/:id/import`：将自动补全草稿导入为企业画像草稿。
 - `POST /api/match-runs`：发起一次匹配。
 - `GET /api/match-runs/:id`：查看匹配结果。
+- `POST /api/match-runs/:id/ai-review`：重试或补生成 DeepSeek 匹配复核。
 - `POST /api/match-runs/:id/report`：生成文字报告。
 - `GET /api/match-runs/:id/report`：查看文字报告。
 
@@ -248,6 +274,12 @@ packages/matcher/src/
   score-policy.ts
   evaluate-rule.ts
   explain-result.ts
+packages/ai/src/
+  deepseek-client.ts
+  extract-enterprise-profile.ts
+  review-policy-match.ts
+  generate-report.ts
+  schemas.ts
 ```
 
 ## 前端页面计划
@@ -298,6 +330,7 @@ packages/matcher/src/
    - 企业名称搜索
    - 候选企业列表
    - 企业画像草稿
+   - DeepSeek 字段解耦状态和失败提示
    - 自动补全字段来源和置信度展示
    - 用户确认后保存
 
@@ -344,6 +377,7 @@ packages/matcher/src/
 - 企业画像历史列表。
 - 企业名称查询接口。
 - 候选企业列表。
+- DeepSeek 自动补全字段解耦。
 - 自动补全画像草稿。
 - 自动补全字段来源标记。
 - 用户确认后保存画像。
@@ -366,6 +400,8 @@ packages/matcher/src/
 
 - 规则评分函数
 - 匹配结果保存
+- DeepSeek 匹配复核服务
+- 规则基线、AI 微调和最终展示结果合并
 - 单元测试覆盖核心评分场景
 
 ### 阶段 7：DeepSeek 文字报告
@@ -405,6 +441,10 @@ packages/matcher/src/
 - 用户 A 不能导入用户 B 的企业查询记录。
 - 自动补全字段未确认时不能直接进入匹配。
 - DeepSeek API 调用失败时结构化匹配结果仍可查看。
+- DeepSeek 画像解耦失败时仍可手动填写。
+- DeepSeek 返回非法 JSON 时不能写入已确认画像或最终匹配结果。
+- DeepSeek 不能编造营收、纳税、研发、社保等缺失字段。
+- DeepSeek 不能覆盖硬性条件失败。
 
 ## 剩余实施配置问题
 
@@ -417,4 +457,4 @@ packages/matcher/src/
 
 ## 下一步建议
 
-按 `docs/product/prd.md` v0.2 已确认稿进入阶段 1，搭建 Vue 3 + Express + PostgreSQL 项目骨架。
+按 `docs/product/prd.md` v0.3 DeepSeek 画像与匹配增强补充稿进入阶段 1，搭建 Vue 3 + Express + PostgreSQL 项目骨架。

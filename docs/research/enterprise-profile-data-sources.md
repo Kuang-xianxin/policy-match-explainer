@@ -35,6 +35,39 @@
 
 这些字段对政策匹配很关键，但多数属于企业内部经营数据或申报材料数据。即使互联网上有部分估算，也不适合作为政策匹配的事实依据。
 
+## DeepSeek 在自动补全中的可行性
+
+结论：可行，但不能理解为“用户输入企业名称后，DeepSeek 自己上网获取完整企业画像”。更可靠的工程方案是：
+
+1. 后端用合法官方接口或商业 API 查询企业事实数据。
+2. DeepSeek 读取这些数据源返回的 `raw_payload`。
+3. DeepSeek 按企业画像 schema 做字段解耦、字段归一化和缺失字段识别。
+4. 后端用 Zod 校验 AI 输出。
+5. 前端展示画像草稿、字段来源和置信度。
+6. 用户确认后，画像才能进入匹配引擎。
+
+适合 DeepSeek 处理的任务：
+
+- 从经营范围、登记行业、公开介绍中提取 `industry`、`main_business` 草稿。
+- 把资质名单、公告附件、信用信息中的文本转成结构化布尔字段或风险字段。
+- 将不同数据源里的字段名统一到项目的 snake_case DTO。
+- 识别哪些字段缺失，并提示用户补充。
+- 对规则匹配结果做语义复核和解释增强。
+
+不适合 DeepSeek 直接处理的任务：
+
+- 凭企业名称生成营收、利润、纳税额、研发费用、研发人员数量、社保状态。
+- 凭模型记忆判断企业当前真实状态。
+- 绕过验证码、登录、授权和反爬限制获取数据。
+- 单独决定最终政策匹配结果。
+
+匹配功能建议同样采用“两段式”：
+
+- 第一段：规则引擎计算 `baseline_score`、硬性条件、命中条件和缺失条件。
+- 第二段：DeepSeek 读取企业画像、政策规则、政策原文片段和规则基线结果，生成 `ai_review_summary`、`ai_explanation`、`ai_missing_fields`、`ai_suggested_actions` 和小幅 `ai_adjustment`。
+
+硬性条件失败时，DeepSeek 只能解释原因或建议补充材料，不能把政策改成推荐。
+
 ## 官方和公开数据源
 
 ### 深圳市政府数据开放平台
@@ -236,7 +269,9 @@
 新增后端能力：
 
 - `POST /api/company-lookup/search`
+- `POST /api/company-lookup/:lookup_id/ai-extract`
 - `POST /api/company-lookup/:lookup_id/import`
+- `POST /api/match-runs/:match_run_id/ai-review`
 
 新增数据表：
 
@@ -252,6 +287,13 @@
 - `source_name`
 - `raw_payload`
 - `mapped_profile`
+- `field_sources`
+- `missing_fields`
+- `ai_extracted_profile`
+- `ai_confidence`
+- `ai_model_name`
+- `ai_prompt_snapshot`
+- `ai_error_message`
 - `confidence`
 - `created_at`
 
@@ -260,6 +302,8 @@
 - `raw_payload` 保存原始返回，便于追溯。
 - `mapped_profile` 保存映射后的企业画像草稿。
 - `confidence` 标识字段可信度，不能把推断字段伪装成事实。
+- `ai_extracted_profile` 保存 DeepSeek 解耦后的结构化草稿，必须通过 schema 校验后才能展示。
+- `missing_fields` 保存需要用户补充的字段清单，尤其是财务、纳税、研发、社保和申报项目字段。
 
 ## 合规与风险
 
@@ -269,6 +313,8 @@
 - 用户必须确认自动补全结果。
 - 对营收、利润、纳税、研发等内部字段，不要从不可靠网页猜测。
 - 报告中需要区分“公开信息自动补全”和“用户自行填写”。
+- DeepSeek 不是事实来源，所有 AI 推断都要标记来源和置信度。
+- DeepSeek 输出非法 JSON、字段越界或引用不存在的数据源时，应丢弃本次 AI 结果并允许用户手动填写。
 
 ## 参考资料
 
@@ -281,3 +327,5 @@
 - 深圳市专精特新中小企业公示公告示例：https://www.sz.gov.cn/cn/xxgk/zfxxgj/tzgg/content/post_12595050.html
 - 国家知识产权局：https://www.cnipa.gov.cn/
 - 企查查开放平台：https://mapi.qcc.com/dataApi
+- DeepSeek Chat Completion API：https://api-docs.deepseek.com/api/create-chat-completion
+- DeepSeek Function Calling Guide：https://api-docs.deepseek.com/guides/function_calling
