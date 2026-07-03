@@ -1,20 +1,55 @@
 import { reactive } from 'vue';
-import type { CustomerType, EnterpriseProfile } from '@policy-match/shared';
+import type { AmountRange, CustomerType, EmployeeRange, EnterpriseProfile, ProfitRange } from '@policy-match/shared';
 import {
   api,
   type AiStatus,
+  type Candidate,
   type EnterpriseProfileRecord,
+  type GenerateProfileResponse,
+  type LookupPlan,
   type MatchResult,
   type MatchRun,
   type ReportRecord,
   type UserResponse
 } from '../services/api';
 
+const amountRangeValue: Record<AmountRange, number> = {
+  unknown: 0,
+  none: 0,
+  lt_1m: 500000,
+  '1m_5m': 3000000,
+  '5m_20m': 12000000,
+  '20m_100m': 50000000,
+  gte_100m: 100000000
+};
+
+const profitRangeValue: Record<ProfitRange, number> = {
+  unknown: 0,
+  loss: -500000,
+  break_even: 0,
+  lt_500k: 250000,
+  '500k_2m': 1000000,
+  '2m_10m': 5000000,
+  gte_10m: 10000000
+};
+
+const employeeRangeValue: Record<EmployeeRange, number> = {
+  unknown: 0,
+  lt_10: 5,
+  '10_50': 30,
+  '50_100': 75,
+  '100_300': 180,
+  gte_300: 300
+};
+
 export const appState = reactive({
   token: localStorage.getItem('policy_match_token') ?? '',
   user: null as UserResponse['user'] | null,
   statusText: '',
   aiStatus: null as AiStatus | null,
+  lookupPlan: null as LookupPlan | null,
+  candidates: [] as Candidate[],
+  generatedProfileMeta: null as Omit<GenerateProfileResponse, 'enterprise_profile'> | null,
   draftProfile: null as EnterpriseProfile | null,
   profiles: [] as EnterpriseProfileRecord[],
   matchRun: null as MatchRun | null,
@@ -56,6 +91,9 @@ export function logout(): void {
   appState.token = '';
   appState.user = null;
   appState.statusText = '已退出';
+  appState.lookupPlan = null;
+  appState.candidates = [];
+  appState.generatedProfileMeta = null;
   appState.draftProfile = null;
   appState.profiles = [];
   appState.matchRun = null;
@@ -64,8 +102,36 @@ export function logout(): void {
   localStorage.removeItem('policy_match_token');
 }
 
-export async function saveManualProfile(): Promise<void> {
-  if (!appState.draftProfile) return;
+export async function searchCompany(queryName: string): Promise<void> {
+  const data = await api<{ lookup_plan: LookupPlan; candidates: Candidate[] }>(
+    '/api/company-lookup/search',
+    appState.token,
+    { method: 'POST', body: JSON.stringify({ query_name: queryName }) }
+  );
+  appState.lookupPlan = data.lookup_plan;
+  appState.candidates = data.candidates;
+  appState.generatedProfileMeta = null;
+  appState.statusText = `找到 ${data.candidates.length} 个候选企业`;
+}
+
+export async function generateProfileFromCandidate(lookupId: string): Promise<void> {
+  const data = await api<GenerateProfileResponse>(
+    `/api/company-lookup/${lookupId}/generate-profile`,
+    appState.token,
+    { method: 'POST' }
+  );
+  appState.draftProfile = data.enterprise_profile;
+  appState.generatedProfileMeta = {
+    field_sources: data.field_sources,
+    missing_fields: data.missing_fields,
+    ai_confidence: data.ai_confidence,
+    ai_mode: data.ai_mode
+  };
+  appState.statusText = `已生成待确认画像：${data.enterprise_profile.company_name}`;
+}
+
+export async function saveManualProfile(): Promise<EnterpriseProfileRecord | null> {
+  if (!appState.draftProfile) return null;
   const data = await api<{ enterprise_profile: EnterpriseProfileRecord }>(
     '/api/enterprise-profiles',
     appState.token,
@@ -73,6 +139,7 @@ export async function saveManualProfile(): Promise<void> {
   );
   appState.statusText = `画像已保存：${data.enterprise_profile.company_name}`;
   await loadProfiles();
+  return data.enterprise_profile;
 }
 
 export async function loadProfiles(): Promise<void> {
@@ -105,6 +172,7 @@ export async function generateReport(): Promise<void> {
 }
 
 export function startManualProfile(): void {
+  appState.generatedProfileMeta = null;
   appState.draftProfile = {
     company_name: '',
     credit_code: '',
@@ -138,7 +206,14 @@ export function startManualProfile(): void {
     project_stage: 'planning',
     project_budget: 0,
     registered_capital: 0,
-    business_address: ''
+    business_address: '',
+    employee_range: 'unknown',
+    revenue_range: 'unknown',
+    profit_range: 'unknown',
+    tax_paid_range: 'unknown',
+    rd_expense_range: 'unknown',
+    rd_employee_range: 'unknown',
+    project_budget_range: 'unknown'
   };
 }
 
@@ -154,4 +229,45 @@ export function setArrayField(field: 'main_products' | 'customer_type', value: s
     return;
   }
   appState.draftProfile.main_products = values;
+}
+
+export function applyAmountRange(
+  field: 'revenue_last_year' | 'tax_paid_last_year' | 'rd_expense_last_year' | 'project_budget',
+  range: AmountRange
+): void {
+  if (!appState.draftProfile) return;
+  const rangeFieldByValueField = {
+    revenue_last_year: 'revenue_range',
+    tax_paid_last_year: 'tax_paid_range',
+    rd_expense_last_year: 'rd_expense_range',
+    project_budget: 'project_budget_range'
+  } as const;
+  appState.draftProfile[rangeFieldByValueField[field]] = range;
+  appState.draftProfile[field] = amountRangeValue[range];
+  updateRdExpenseRatio();
+}
+
+export function applyProfitRange(range: ProfitRange): void {
+  if (!appState.draftProfile) return;
+  appState.draftProfile.profit_range = range;
+  appState.draftProfile.profit_last_year = profitRangeValue[range];
+}
+
+export function applyEmployeeRange(range: EmployeeRange): void {
+  if (!appState.draftProfile) return;
+  appState.draftProfile.rd_employee_range = range;
+  appState.draftProfile.rd_employee_count = employeeRangeValue[range];
+}
+
+export function applyCompanyEmployeeRange(range: EmployeeRange): void {
+  if (!appState.draftProfile) return;
+  appState.draftProfile.employee_range = range;
+  appState.draftProfile.employee_count = employeeRangeValue[range];
+}
+
+function updateRdExpenseRatio(): void {
+  if (!appState.draftProfile) return;
+  const revenue = appState.draftProfile.revenue_last_year;
+  const rdExpense = appState.draftProfile.rd_expense_last_year;
+  appState.draftProfile.rd_expense_ratio = revenue > 0 ? Math.round((rdExpense / revenue) * 1000) / 10 : 0;
 }

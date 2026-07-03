@@ -69,9 +69,9 @@ function mockCompanyLookupPlan(queryName: string): CompanyLookupPlan {
   return {
     normalized_query: normalizedQuery,
     search_keywords: searchKeywords.length > 0 ? searchKeywords : [normalizedQuery],
-    recommended_sources: ['commercial_company_registry_api', 'official_open_data_api'],
+    recommended_sources: ['local_longhua_enterprise_index', 'official_open_data_api'],
     explanation:
-      'Mock mode only normalizes the company query. Real enterprise facts must come from backend data providers, not from model generation.',
+      'Mock mode only normalizes the company query. Real enterprise facts must come from backend data providers or local authorized indexes, not from model generation.',
     ai_mode: 'mock'
   };
 }
@@ -85,7 +85,7 @@ export async function planCompanyLookup(queryName: string, config: AiConfig): Pr
       'You are an enterprise lookup query planner for a policy matching system.',
       'You cannot browse the web and you must not invent company candidates or enterprise facts.',
       'Only output a JSON query plan for backend data-source tools.',
-      'The backend will use official/commercial data providers to fetch raw company records.',
+      'The backend will use local enterprise indexes or official public data providers to fetch raw company records.',
       'Output JSON keys: normalized_query, search_keywords, recommended_sources, explanation.'
     ].join('\n'),
     { query_name: queryName }
@@ -120,33 +120,39 @@ function mockExtractProfile(input: ExtractProfileInput): ExtractedProfileResult 
     registered_capital: Number(raw.registered_capital ?? 1000000),
     business_address: String(raw.business_address ?? '深圳市龙华区'),
     listed_status: 'unlisted',
-    employee_count: 80,
+    employee_count: 0,
     industry: String(raw.industry ?? '软件和信息技术服务业'),
     main_business: String(raw.business_scope ?? '人工智能、数据治理和企业数字化软件服务。'),
     main_products: ['AI 数据治理平台', '企业政策分析系统'],
     customer_type: ['enterprise', 'government'],
     business_model: 'SaaS',
     main_revenue_source: '软件订阅、项目交付和技术服务',
-    revenue_last_year: 6000000,
-    profit_last_year: 900000,
-    tax_paid_last_year: 350000,
-    rd_expense_last_year: 900000,
-    rd_expense_ratio: 15,
-    rd_employee_count: 24,
+    revenue_last_year: 0,
+    profit_last_year: 0,
+    tax_paid_last_year: 0,
+    rd_expense_last_year: 0,
+    rd_expense_ratio: 0,
+    rd_employee_count: 0,
     is_high_tech_enterprise: Boolean(raw.is_high_tech_enterprise ?? true),
     is_tech_sme: Boolean(raw.is_tech_sme ?? true),
     has_specialized_new_sme: Boolean(raw.has_specialized_new_sme ?? false),
-    patent_count: 6,
-    software_copyright_count: 12,
-    tax_credit_level: 'A',
+    patent_count: 0,
+    software_copyright_count: 0,
+    tax_credit_level: 'unknown',
     has_major_violation: false,
     social_security_normal: true,
     apply_project_name: 'AI 数据治理平台产业化项目',
     project_direction: 'AI',
     project_stage: 'launched',
-    project_budget: 1200000,
+    project_budget: 0,
     digital_transformation_status: '已形成产品并服务企业客户',
-    award_titles: ['科技型中小企业']
+    award_titles: ['科技型中小企业'],
+    revenue_range: 'unknown',
+    profit_range: 'unknown',
+    tax_paid_range: 'unknown',
+    rd_expense_range: 'unknown',
+    rd_employee_range: 'unknown',
+    project_budget_range: 'unknown'
   };
 
   const inferredFields = ['industry', 'main_business', 'main_products', 'business_model'];
@@ -162,7 +168,15 @@ function mockExtractProfile(input: ExtractProfileInput): ExtractedProfileResult 
   return {
     mapped_profile: mappedProfile,
     field_sources: fieldSources,
-    missing_fields: [],
+    missing_fields: [
+      'employee_count',
+      'revenue_last_year',
+      'profit_last_year',
+      'tax_paid_last_year',
+      'rd_expense_last_year',
+      'rd_employee_count',
+      'project_budget'
+    ],
     ai_confidence: 0.78,
     ai_mode: 'mock'
   };
@@ -179,7 +193,7 @@ export async function extractEnterpriseProfile(
     [
       '你是企业画像字段解耦助手。',
       '只能从输入 rawPayload 中提取字段，低风险推断必须标记为 inferred。',
-      '不得编造营收、利润、纳税、研发、社保、项目预算等内部字段。',
+      '不得编造员工数、营收、利润、纳税、研发、社保、项目预算等内部字段；没有证据时使用 0 和 unknown 区间。',
       '必须输出 JSON，字段为 mapped_profile, field_sources, missing_fields, ai_confidence。'
     ].join('\n'),
     input

@@ -73,7 +73,7 @@ describe('policy match MVP flow', () => {
     await closePool();
   });
 
-  it('runs manual profile save, matching, and report on PostgreSQL', async () => {
+  it('runs AI-assisted company lookup, profile confirmation, matching, and report on PostgreSQL', async () => {
     const token = await register('demo@example.com');
 
     const health = await request(app).get('/health');
@@ -83,7 +83,47 @@ describe('policy match MVP flow', () => {
     expect(aiStatus.body.provider).toBe('deepseek');
     expect(aiStatus.body).toHaveProperty('configured');
 
-    const profileId = await createManualProfile(token);
+    const lookup = await request(app)
+      .post('/api/company-lookup/search')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ query_name: '龙华智造' });
+    expect(lookup.status).toBe(200);
+    expect(lookup.body.lookup_plan.search_keywords.length).toBeGreaterThan(0);
+    expect(lookup.body.candidates.length).toBeGreaterThan(0);
+
+    const generated = await request(app)
+      .post(`/api/company-lookup/${lookup.body.candidates[0].lookup_id}/generate-profile`)
+      .set('Authorization', `Bearer ${token}`)
+      .send();
+    expect(generated.status).toBe(200);
+    expect(generated.body.enterprise_profile.company_name).toContain('龙华智造');
+    expect(generated.body.enterprise_profile.revenue_range).toBe('unknown');
+
+    const confirmedProfile: EnterpriseProfile = {
+      ...generated.body.enterprise_profile,
+      employee_range: '50_100',
+      employee_count: 75,
+      revenue_range: '5m_20m',
+      revenue_last_year: 12000000,
+      profit_range: '500k_2m',
+      profit_last_year: 1000000,
+      tax_paid_range: 'lt_1m',
+      tax_paid_last_year: 500000,
+      rd_expense_range: '1m_5m',
+      rd_expense_last_year: 3000000,
+      rd_expense_ratio: 25,
+      rd_employee_range: '10_50',
+      rd_employee_count: 30,
+      project_budget_range: '1m_5m',
+      project_budget: 3000000
+    };
+
+    const created = await request(app)
+      .post('/api/enterprise-profiles')
+      .set('Authorization', `Bearer ${token}`)
+      .send(confirmedProfile);
+    expect(created.status).toBe(201);
+    const profileId = created.body.enterprise_profile.id as string;
 
     const matchRun = await request(app)
       .post('/api/match-runs')
@@ -100,6 +140,24 @@ describe('policy match MVP flow', () => {
       .send();
     expect(report.status).toBe(201);
     expect(report.body.report.content_text).toContain('综合结论');
+  });
+
+  it('prevents users from generating a profile from another user lookup record', async () => {
+    const tokenA = await register('lookup-owner@example.com');
+    const tokenB = await register('lookup-other@example.com');
+
+    const lookup = await request(app)
+      .post('/api/company-lookup/search')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ query_name: '龙华智造' });
+    const lookupId = lookup.body.candidates[0].lookup_id as string;
+
+    const generated = await request(app)
+      .post(`/api/company-lookup/${lookupId}/generate-profile`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send();
+
+    expect(generated.status).toBe(404);
   });
 
   it('rejects an incomplete manually entered profile', async () => {

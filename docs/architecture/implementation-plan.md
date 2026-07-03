@@ -4,9 +4,9 @@
 
 ## 最新调整
 
-当前 MVP 的企业画像输入改为全手动填写。企业名称、统一社会信用代码和画像字段都由用户录入；画像输入页不再提供企业名称自动补全、AI 字段解耦或自动画像导入。DeepSeek 只保留在保存画像后的政策匹配复核、解释增强和报告生成中。
+当前 MVP 的企业画像输入改为 AI 辅助轻量生成。用户输入企业名称或简称后，DeepSeek 生成规范化查询词；后端查询本地龙华企业示例索引并返回候选企业；用户选择候选企业后，系统生成待确认画像草稿。
 
-本文档中关于企业自动补全和企业库的内容保留为后续可选研究，不再作为当前 MVP 阶段 4 的必做范围。
+工商基础字段来自候选企业原始数据，业务摘要等低风险字段可以由 DeepSeek/mock 解耦。营收、利润、纳税、研发投入、研发人员和项目预算等非公开字段不由大模型编造，当前通过区间选择补充并允许未知。DeepSeek 继续用于保存画像后的政策匹配复核、解释增强和报告生成。
 
 ## 已确认方向
 
@@ -256,8 +256,7 @@ export interface PolicyMatchResult {
 - `POST /api/enterprise-profiles`：保存企业画像。
 - `GET /api/enterprise-profiles`：当前用户企业画像列表。
 - `POST /api/company-lookup/search`：按企业名称查询候选企业。
-- `POST /api/company-lookup/:id/ai-extract`：把合法数据源返回内容解耦为画像草稿。
-- `POST /api/company-lookup/:id/import`：将自动补全草稿导入为企业画像草稿。
+- `POST /api/company-lookup/:id/generate-profile`：把用户选中的候选企业解耦为待确认画像草稿。
 - `POST /api/match-runs`：发起一次匹配。
 - `GET /api/match-runs/:id`：查看匹配结果。
 - `POST /api/match-runs/:id/ai-review`：重试或补生成 DeepSeek 匹配复核。

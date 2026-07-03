@@ -1,16 +1,20 @@
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import {
+  companyLookupSearchSchema,
   createMatchRunSchema,
   enterpriseProfileSchema,
   loginSchema,
   registerSchema,
+  type CompanyLookupCandidate,
   type EnterpriseProfile,
+  type FieldSource,
   type Policy
 } from '@policy-match/shared';
-import { generateReport, reviewPolicyMatch } from '@policy-match/ai';
+import { extractEnterpriseProfile, generateReport, planCompanyLookup, reviewPolicyMatch } from '@policy-match/ai';
 import { evaluatePolicy, levelFromFinalScore } from '@policy-match/matcher';
 import { env } from './config/env.js';
+import { searchDemoCompanies, type DemoCompanyPayload } from './data/demo-companies.js';
 import { pool } from './db/pool.js';
 import { createSession, hashPassword, hashToken, requireAuth, verifyPassword, type AuthenticatedRequest } from './services/auth.js';
 
@@ -30,6 +34,132 @@ function aiConfig() {
 
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+const customerTypes = ['government', 'enterprise', 'individual', 'overseas', 'other'] as const;
+const businessModels = ['B2B', 'B2G', 'B2C', 'SaaS', 'platform', 'manufacturing', 'service', 'other'] as const;
+const projectStages = ['planning', 'researching', 'developing', 'launched', 'scaling'] as const;
+
+function stringValue(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function booleanValue(value: unknown): boolean {
+  return value === true;
+}
+
+function candidateConfidence(queryName: string, candidate: DemoCompanyPayload): number {
+  const query = queryName.trim().toLowerCase();
+  const target = `${candidate.company_name} ${candidate.credit_code} ${candidate.industry} ${candidate.business_scope}`.toLowerCase();
+  if (candidate.company_name.toLowerCase() === query) return 0.96;
+  if (candidate.company_name.toLowerCase().includes(query)) return 0.9;
+  if (candidate.credit_code.toLowerCase() === query) return 0.95;
+  return target.includes(query) ? 0.78 : 0.68;
+}
+
+function inferProjectDirection(raw: Partial<DemoCompanyPayload>): EnterpriseProfile['project_direction'] {
+  const text = `${raw.industry ?? ''} ${raw.business_scope ?? ''}`;
+  if (text.includes('智能制造') || text.includes('装备')) return '智能制造';
+  if (text.includes('数据')) return '数据治理';
+  if (text.includes('AI') || text.includes('人工智能')) return 'AI';
+  return '数据治理';
+}
+
+function generatedProfileFromLookup(
+  rawPayload: Record<string, unknown>,
+  mappedProfile: Partial<EnterpriseProfile>
+): EnterpriseProfile {
+  const raw = rawPayload as Partial<DemoCompanyPayload>;
+  const companyName = stringValue(raw.company_name, stringValue(mappedProfile.company_name, '待确认企业'));
+  const scope = stringValue(raw.business_scope, stringValue(mappedProfile.main_business, '待补充'));
+  const inferredProducts = Array.isArray(mappedProfile.main_products)
+    ? mappedProfile.main_products.map(String).filter(Boolean)
+    : [];
+  const inferredCustomerTypes = Array.isArray(mappedProfile.customer_type)
+    ? mappedProfile.customer_type.filter((item): item is EnterpriseProfile['customer_type'][number] =>
+        customerTypes.includes(item as EnterpriseProfile['customer_type'][number])
+      )
+    : [];
+  const inferredBusinessModel = businessModels.includes(mappedProfile.business_model as EnterpriseProfile['business_model'])
+    ? mappedProfile.business_model
+    : 'other';
+  const inferredProjectStage = projectStages.includes(mappedProfile.project_stage as EnterpriseProfile['project_stage'])
+    ? mappedProfile.project_stage
+    : 'planning';
+
+  return enterpriseProfileSchema.parse({
+    company_name: companyName,
+    credit_code: stringValue(raw.credit_code, stringValue(mappedProfile.credit_code, 'UNKNOWN-CODE')),
+    city: '深圳市',
+    district: '龙华区',
+    registered_year: numberValue(raw.registered_year, new Date().getFullYear()),
+    listed_status: 'unknown',
+    employee_count: 0,
+    industry: stringValue(raw.industry, stringValue(mappedProfile.industry, '待补充')),
+    main_business: stringValue(mappedProfile.main_business, scope),
+    main_products: inferredProducts,
+    customer_type: inferredCustomerTypes,
+    business_model: inferredBusinessModel,
+    main_revenue_source: stringValue(mappedProfile.main_revenue_source, '待补充'),
+    revenue_last_year: 0,
+    profit_last_year: 0,
+    tax_paid_last_year: 0,
+    rd_expense_last_year: 0,
+    rd_expense_ratio: 0,
+    rd_employee_count: 0,
+    is_high_tech_enterprise: booleanValue(raw.is_high_tech_enterprise),
+    is_tech_sme: booleanValue(raw.is_tech_sme),
+    has_specialized_new_sme: booleanValue(raw.has_specialized_new_sme),
+    patent_count: 0,
+    software_copyright_count: 0,
+    tax_credit_level: 'unknown',
+    has_major_violation: false,
+    social_security_normal: true,
+    apply_project_name: `${companyName}数字化转型项目`,
+    project_direction: stringValue(mappedProfile.project_direction, inferProjectDirection(raw)),
+    project_stage: inferredProjectStage,
+    project_budget: 0,
+    registered_capital: numberValue(raw.registered_capital, 0),
+    business_address: stringValue(raw.business_address, ''),
+    digital_transformation_status: stringValue(mappedProfile.digital_transformation_status, ''),
+    award_titles: Array.isArray(mappedProfile.award_titles) ? mappedProfile.award_titles.map(String).filter(Boolean) : [],
+    employee_range: 'unknown',
+    revenue_range: 'unknown',
+    profit_range: 'unknown',
+    tax_paid_range: 'unknown',
+    rd_expense_range: 'unknown',
+    rd_employee_range: 'unknown',
+    project_budget_range: 'unknown'
+  });
+}
+
+function baseFieldSources(raw: DemoCompanyPayload, sourceName: string): FieldSource[] {
+  const fields: Array<keyof EnterpriseProfile> = [
+    'company_name',
+    'credit_code',
+    'city',
+    'district',
+    'registered_year',
+    'registered_capital',
+    'business_address',
+    'industry',
+    'main_business',
+    'is_high_tech_enterprise',
+    'is_tech_sme',
+    'has_specialized_new_sme'
+  ];
+  return fields.map((fieldKey) => ({
+    field_key: fieldKey,
+    source_name: sourceName,
+    source_type: 'local_seed',
+    confidence: fieldKey in raw || fieldKey === 'city' || fieldKey === 'district' ? 0.88 : 0.7,
+    is_user_confirmed: false
+  }));
 }
 
 export function createApp() {
@@ -94,6 +224,115 @@ export function createApp() {
   app.get('/api/policies', requireAuth, asyncHandler<AuthenticatedRequest>(async (_req, res) => {
     const result = await pool.query('SELECT id, title, category, source_url, status, policy_text, rules FROM policies ORDER BY title');
     res.json({ policies: result.rows });
+  }));
+
+  app.post('/api/company-lookup/search', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
+    const body = companyLookupSearchSchema.parse(req.body);
+    const plan = await planCompanyLookup(body.query_name, aiConfig());
+    const searched = searchDemoCompanies([body.query_name, ...plan.search_keywords]);
+    const candidates: CompanyLookupCandidate[] = [];
+
+    for (const company of searched) {
+      const confidence = candidateConfidence(body.query_name, company);
+      const inserted = await pool.query(
+        `
+        INSERT INTO company_lookup_records (
+          user_id, query_name, selected_company_name, selected_credit_code,
+          source_name, source_type, raw_payload, confidence
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+        RETURNING id
+        `,
+        [
+          req.user.id,
+          body.query_name,
+          company.company_name,
+          company.credit_code,
+          'local_longhua_demo_registry',
+          'local_seed',
+          JSON.stringify(company),
+          confidence
+        ]
+      );
+
+      candidates.push({
+        lookup_id: inserted.rows[0].id,
+        company_name: company.company_name,
+        credit_code: company.credit_code,
+        business_address: company.business_address,
+        registration_status: company.registration_status,
+        source_name: '本地龙华企业示例库',
+        source_type: 'local_seed',
+        confidence
+      });
+    }
+
+    res.json({ lookup_plan: plan, candidates });
+  }));
+
+  app.post('/api/company-lookup/:id/generate-profile', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
+    const result = await pool.query('SELECT * FROM company_lookup_records WHERE id = $1 AND user_id = $2', [
+      req.params.id,
+      req.user.id
+    ]);
+    const record = result.rows[0];
+    if (!record) {
+      res.status(404).json({ error_code: 'NOT_FOUND', message: 'Company lookup record not found.' });
+      return;
+    }
+
+    const rawPayload = record.raw_payload as Record<string, unknown>;
+    const extracted = await extractEnterpriseProfile({ rawPayload, sourceName: record.source_name }, aiConfig());
+    const enterpriseProfile = generatedProfileFromLookup(rawPayload, extracted.mapped_profile);
+    const fieldSources = [
+      ...baseFieldSources(rawPayload as unknown as DemoCompanyPayload, record.source_name),
+      ...extracted.field_sources
+    ];
+    const missingFields = Array.from(
+      new Set([
+        ...extracted.missing_fields,
+        'employee_count',
+        'revenue_last_year',
+        'profit_last_year',
+        'tax_paid_last_year',
+        'rd_expense_last_year',
+        'rd_employee_count',
+        'project_budget'
+      ])
+    );
+
+    await pool.query(
+      `
+      UPDATE company_lookup_records
+      SET mapped_profile = $1::jsonb,
+          field_sources = $2::jsonb,
+          missing_fields = $3::jsonb,
+          ai_extracted_profile = $4::jsonb,
+          ai_confidence = $5,
+          ai_model_name = $6,
+          ai_prompt_snapshot = $7
+      WHERE id = $8 AND user_id = $9
+      `,
+      [
+        JSON.stringify(enterpriseProfile),
+        JSON.stringify(fieldSources),
+        JSON.stringify(missingFields),
+        JSON.stringify(extracted.mapped_profile),
+        extracted.ai_confidence,
+        extracted.ai_mode === 'deepseek' ? env.deepseekModel : 'mock',
+        'generate_lightweight_profile_v1',
+        req.params.id,
+        req.user.id
+      ]
+    );
+
+    res.json({
+      enterprise_profile: enterpriseProfile,
+      field_sources: fieldSources,
+      missing_fields: missingFields,
+      ai_confidence: extracted.ai_confidence,
+      ai_mode: extracted.ai_mode
+    });
   }));
 
   app.post('/api/enterprise-profiles', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {

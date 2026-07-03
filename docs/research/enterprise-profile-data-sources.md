@@ -2,7 +2,7 @@
 
 调研日期：2026-07-03
 
-更新说明：当前 MVP 已调整为企业画像全手动输入，暂不启用企业名称自动补全或 DeepSeek 画像字段解耦。本调研仅作为后续可选能力参考。
+更新说明：当前 MVP 已采用“企业名称搜索候选 + AI 轻量画像草稿 + 用户区间补充”的路径，但不接入付费企业数据 API。DeepSeek 只负责查询词规划和低风险字段解耦，不能凭企业名称编造营收、纳税、研发、社保或项目预算等非公开字段。
 
 ## 结论
 
@@ -271,8 +271,7 @@
 新增后端能力：
 
 - `POST /api/company-lookup/search`
-- `POST /api/company-lookup/:lookup_id/ai-extract`
-- `POST /api/company-lookup/:lookup_id/import`
+- `POST /api/company-lookup/:lookup_id/generate-profile`
 - `POST /api/match-runs/:match_run_id/ai-review`
 
 新增数据表：

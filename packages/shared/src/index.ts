@@ -31,6 +31,9 @@ export const taxCreditLevelSchema = z.enum(['A', 'B', 'M', 'C', 'D', 'unknown'])
 export const projectStageSchema = z.enum(['planning', 'researching', 'developing', 'launched', 'scaling']);
 export const matchLevelSchema = z.enum(['recommended', 'potential', 'need_more_info', 'not_recommended']);
 export const reportStatusSchema = z.enum(['pending', 'generating', 'completed', 'failed']);
+export const amountRangeSchema = z.enum(['unknown', 'none', 'lt_1m', '1m_5m', '5m_20m', '20m_100m', 'gte_100m']);
+export const profitRangeSchema = z.enum(['unknown', 'loss', 'break_even', 'lt_500k', '500k_2m', '2m_10m', 'gte_10m']);
+export const employeeRangeSchema = z.enum(['unknown', 'lt_10', '10_50', '50_100', '100_300', 'gte_300']);
 
 export const enterpriseProfileSchema = z.object({
   company_name: z.string().min(1),
@@ -69,7 +72,14 @@ export const enterpriseProfileSchema = z.object({
   is_headquarters: z.coerce.boolean().optional(),
   is_above_scale_enterprise: z.coerce.boolean().optional(),
   digital_transformation_status: z.string().optional(),
-  award_titles: z.array(z.string()).optional()
+  award_titles: z.array(z.string()).optional(),
+  employee_range: employeeRangeSchema.optional(),
+  revenue_range: amountRangeSchema.optional(),
+  profit_range: profitRangeSchema.optional(),
+  tax_paid_range: amountRangeSchema.optional(),
+  rd_expense_range: amountRangeSchema.optional(),
+  rd_employee_range: employeeRangeSchema.optional(),
+  project_budget_range: amountRangeSchema.optional()
 });
 
 export const profileFieldSourceTypeSchema = z.enum([
@@ -77,6 +87,7 @@ export const profileFieldSourceTypeSchema = z.enum([
   'official_open_data',
   'official_public_page',
   'commercial_api',
+  'local_seed',
   'inferred'
 ]);
 
@@ -106,6 +117,9 @@ export type TaxCreditLevel = z.infer<typeof taxCreditLevelSchema>;
 export type ProjectStage = z.infer<typeof projectStageSchema>;
 export type MatchLevel = z.infer<typeof matchLevelSchema>;
 export type ReportStatus = z.infer<typeof reportStatusSchema>;
+export type AmountRange = z.infer<typeof amountRangeSchema>;
+export type ProfitRange = z.infer<typeof profitRangeSchema>;
+export type EmployeeRange = z.infer<typeof employeeRangeSchema>;
 export type EnterpriseProfile = z.infer<typeof enterpriseProfileSchema>;
 export type ProfileFieldSourceType = z.infer<typeof profileFieldSourceTypeSchema>;
 

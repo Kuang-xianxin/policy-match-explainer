@@ -1,4 +1,4 @@
-import type { EnterpriseProfile } from '@policy-match/shared';
+import type { CompanyLookupCandidate, CompanyLookupPlan, EnterpriseProfile, FieldSource } from '@policy-match/shared';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
 
@@ -19,6 +19,17 @@ export interface EnterpriseProfileRecord {
   company_name: string;
   credit_code: string;
   profile: EnterpriseProfile;
+}
+
+export type Candidate = CompanyLookupCandidate;
+export type LookupPlan = CompanyLookupPlan;
+
+export interface GenerateProfileResponse {
+  enterprise_profile: EnterpriseProfile;
+  field_sources: FieldSource[];
+  missing_fields: string[];
+  ai_confidence: number;
+  ai_mode: 'deepseek' | 'mock';
 }
 
 export interface MatchRun {

@@ -12,8 +12,24 @@ function getProfileValue(profile: EnterpriseProfile, fieldKey: string): unknown 
   return (profile as unknown as Record<string, unknown>)[fieldKey];
 }
 
+const unknownRangeFieldByValueField: Record<string, keyof EnterpriseProfile> = {
+  employee_count: 'employee_range',
+  revenue_last_year: 'revenue_range',
+  profit_last_year: 'profit_range',
+  tax_paid_last_year: 'tax_paid_range',
+  rd_expense_last_year: 'rd_expense_range',
+  rd_employee_count: 'rd_employee_range',
+  project_budget: 'project_budget_range'
+};
+
 function isMissing(value: unknown): boolean {
   return value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0);
+}
+
+function isMarkedUnknown(profile: EnterpriseProfile, fieldKey: string): boolean {
+  const rangeField = unknownRangeFieldByValueField[fieldKey];
+  if (!rangeField) return false;
+  return getProfileValue(profile, rangeField) === 'unknown';
 }
 
 function ruleMatches(value: unknown, rule: PolicyRule): boolean {
@@ -73,7 +89,7 @@ export function evaluatePolicy(profile: EnterpriseProfile, policy: Policy): Base
   for (const rule of policy.rules) {
     const value = getProfileValue(profile, rule.field_key);
 
-    if (isMissing(value)) {
+    if (isMissing(value) || isMarkedUnknown(profile, rule.field_key)) {
       missingConditions.push({
         field_key: rule.field_key,
         expected_value: rule.expected_value,

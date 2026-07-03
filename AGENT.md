@@ -10,11 +10,13 @@
 
 ## Enterprise Profile Input Architecture
 
-- The current MVP enterprise profile input is fully manual. The user manually enters company name, credit code, business fields, financial fields, R&D fields, compliance fields, and project fields.
-- Do not expose company-name lookup, AI profile extraction, AI field decomposition, or automatic enterprise profile import in the profile input page.
-- DeepSeek remains available for policy match review and report writing after the user saves a manually entered profile.
-- Do not use DeepSeek or any LLM prompt to fabricate enterprise registry facts, enterprise operating data, financial data, tax data, R&D data, social security data, customer type, or project fields.
-- A future Longhua enterprise registry, if reintroduced, should be a separate optional local searchable index/cache built from authorized providers, not an unauthorized copied full registry or a crawler that bypasses public query restrictions.
+- The current MVP enterprise profile input uses AI-assisted lightweight profile generation. The primary flow is: user enters an incomplete company name, DeepSeek plans normalized search keywords, the backend searches a local/authorized Longhua enterprise index, the user selects one candidate, and the system generates a draft enterprise profile for user confirmation.
+- Do not use paid enterprise data APIs unless the user explicitly approves that cost and provider. The current MVP uses a local Longhua demo enterprise index that can later be replaced by authorized official/open data providers.
+- Multiple company candidates must be shown to the user for selection. Do not silently choose an ambiguous candidate.
+- DeepSeek may infer low-risk business fields from a selected raw company payload, such as business summary, products, customer type, business model, and project direction. It must not be used as the source of enterprise registry facts.
+- DeepSeek or any LLM prompt must not fabricate revenue, profit, tax paid, R&D expense, R&D employee count, social security status, project budget, or other internal operating data. Those fields must be user-confirmed through range selectors or explicit manual editing, with `unknown` supported.
+- The matcher must keep deterministic rule scoring as the baseline. DeepSeek remains available for policy match review and report writing after the user saves a confirmed profile.
+- Any future Longhua enterprise registry must be a separate optional local searchable index/cache built from authorized providers, not an unauthorized copied full registry or a crawler that bypasses public query restrictions.
 
 ## Round Log Requirement
 

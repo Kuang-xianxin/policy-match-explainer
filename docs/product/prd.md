@@ -1,14 +1,14 @@
 # 企业政策匹配解释网站 PRD
 
-版本：v0.4 手动画像输入调整稿
+版本：v0.5 AI 辅助轻量画像稿
 
 日期：2026-07-03
 
 ## 0. 最新调整
 
-当前 MVP 的企业画像改为全手动输入。用户需要手动填写企业名称、统一社会信用代码和所有画像字段；画像输入页不再提供企业名称自动补全、AI 字段解耦或自动导入画像草稿。
+当前 MVP 的企业画像改为“AI 辅助轻量画像”。用户输入企业名称或简称，DeepSeek 只负责生成规范化查询词；后端从本地龙华企业示例索引或后续授权数据源返回候选企业；用户必须选择候选企业后，系统才能生成待确认画像草稿。
 
-DeepSeek 继续用于用户保存画像之后的政策匹配复核、解释增强和文字报告生成。本文档中关于企业画像自动补全、企业库和字段解耦的内容保留为后续可选研究，不属于当前 MVP 画像输入流程。
+工商基础字段来自候选企业原始数据，业务摘要、产品方向、客户类型、业务模式和项目方向允许 DeepSeek 做低风险推断并标记来源。营收、利润、纳税、研发投入、研发人员、项目预算等非公开字段不能由大模型编造，当前 MVP 通过区间选择补充，并允许选择 `unknown`。DeepSeek 继续用于用户保存画像之后的政策匹配复核、解释增强和文字报告生成。
 
 ## 1. 项目背景
 
@@ -504,6 +504,7 @@ export type ProfileFieldSourceType =
   | 'official_open_data'
   | 'official_public_page'
   | 'commercial_api'
+  | 'local_seed'
   | 'inferred';
 ```
 
@@ -746,16 +747,13 @@ DeepSeek 匹配复核输出：
 ### 15.4 企业画像自动补全
 
 - `POST /api/company-lookup/search`
-- `GET /api/company-lookup/:id`
-- `POST /api/company-lookup/:id/ai-extract`
-- `POST /api/company-lookup/:id/import`
+- `POST /api/company-lookup/:id/generate-profile`
 
 权限要求：
 
 - 查询记录必须绑定当前用户。
-- AI 字段解耦记录必须属于当前用户。
-- 导入画像草稿时必须确认 lookup 记录属于当前用户。
-- 导入后仍需用户确认并保存企业画像。
+- 生成画像草稿时必须确认 lookup 记录属于当前用户。
+- 画像草稿不直接写入正式企业画像表，必须经过用户确认并调用 `POST /api/enterprise-profiles` 保存。
 
 ### 15.5 政策
 
