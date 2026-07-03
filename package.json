@@ -1,0 +1,43 @@
+{
+  "name": "policy-match-explainer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @policy-match/api\" \"npm run dev -w @policy-match/web\"",
+    "build": "npm run build -w @policy-match/shared && npm run build -w @policy-match/matcher && npm run build -w @policy-match/ai && npm run build -w @policy-match/api && npm run build -w @policy-match/web",
+    "test": "npm run test -w @policy-match/api",
+    "db:up": "docker compose up -d postgres",
+    "db:migrate": "npm run db:migrate -w @policy-match/api",
+    "db:seed": "npm run db:seed -w @policy-match/api",
+    "db:reset": "npm run db:reset -w @policy-match/api"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "lucide-vue-next": "^0.468.0",
+    "pg": "^8.13.1",
+    "vue": "^3.5.13",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/supertest": "^6.0.2",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "concurrently": "^9.1.2",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8",
+    "vue-tsc": "^2.1.10"
+  }
+}
