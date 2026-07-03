@@ -3,11 +3,7 @@ import type { CustomerType, EnterpriseProfile } from '@policy-match/shared';
 import {
   api,
   type AiStatus,
-  type Candidate,
   type EnterpriseProfileRecord,
-  type ExtractResponse,
-  type LookupPlan,
-  type LookupRecord,
   type MatchResult,
   type MatchRun,
   type ReportRecord,
@@ -19,9 +15,6 @@ export const appState = reactive({
   user: null as UserResponse['user'] | null,
   statusText: '',
   aiStatus: null as AiStatus | null,
-  candidates: [] as Candidate[],
-  lookupPlan: null as LookupPlan | null,
-  lookup: null as LookupRecord | null,
   draftProfile: null as EnterpriseProfile | null,
   profiles: [] as EnterpriseProfileRecord[],
   matchRun: null as MatchRun | null,
@@ -63,51 +56,12 @@ export function logout(): void {
   appState.token = '';
   appState.user = null;
   appState.statusText = '已退出';
-  appState.candidates = [];
-  appState.lookupPlan = null;
-  appState.lookup = null;
   appState.draftProfile = null;
   appState.profiles = [];
   appState.matchRun = null;
   appState.matchResults = [];
   appState.report = null;
   localStorage.removeItem('policy_match_token');
-}
-
-export async function searchCompany(queryName: string): Promise<void> {
-  const data = await api<{ candidates: Candidate[]; lookup_plan: LookupPlan }>(
-    '/api/company-lookup/search',
-    appState.token,
-    { method: 'POST', body: JSON.stringify({ query_name: queryName }) }
-  );
-  appState.candidates = data.candidates;
-  appState.lookupPlan = data.lookup_plan;
-  appState.lookup = null;
-  appState.draftProfile = null;
-  appState.statusText = `找到 ${data.candidates.length} 个候选企业`;
-}
-
-export async function extractProfile(lookupId: string): Promise<void> {
-  const data = await api<ExtractResponse>(
-    `/api/company-lookup/${lookupId}/ai-extract`,
-    appState.token,
-    { method: 'POST' }
-  );
-  appState.lookup = data.lookup;
-  appState.draftProfile = { ...data.extracted_profile };
-  appState.statusText = `画像解耦完成：${data.ai_mode === 'deepseek' ? 'DeepSeek API' : 'mock 开发模式'}`;
-}
-
-export async function importProfile(): Promise<void> {
-  if (!appState.lookup) return;
-  const data = await api<{ enterprise_profile: EnterpriseProfileRecord }>(
-    `/api/company-lookup/${appState.lookup.id}/import`,
-    appState.token,
-    { method: 'POST' }
-  );
-  appState.draftProfile = data.enterprise_profile.profile;
-  appState.statusText = `画像已保存：${data.enterprise_profile.company_name}`;
-  await loadProfiles();
 }
 
 export async function saveManualProfile(): Promise<void> {
@@ -150,43 +104,41 @@ export async function generateReport(): Promise<void> {
   appState.statusText = '报告已生成';
 }
 
-export function useDemoProfile(): void {
-  appState.lookup = null;
-  appState.lookupPlan = null;
+export function startManualProfile(): void {
   appState.draftProfile = {
-    company_name: '深圳市龙华智造科技有限公司',
-    credit_code: '91440300MA5DEMO001',
+    company_name: '',
+    credit_code: '',
     city: '深圳市',
     district: '龙华区',
-    registered_year: 2020,
-    listed_status: 'unlisted',
-    employee_count: 80,
-    industry: '软件和信息技术服务业',
-    main_business: '人工智能、数据治理和企业数字化软件服务。',
-    main_products: ['AI 数据治理平台', '企业政策分析系统'],
-    customer_type: ['enterprise', 'government'],
-    business_model: 'SaaS',
-    main_revenue_source: '软件订阅、项目交付和技术服务',
-    revenue_last_year: 6000000,
-    profit_last_year: 900000,
-    tax_paid_last_year: 350000,
-    rd_expense_last_year: 900000,
-    rd_expense_ratio: 15,
-    rd_employee_count: 24,
-    is_high_tech_enterprise: true,
-    is_tech_sme: true,
+    registered_year: new Date().getFullYear(),
+    listed_status: 'unknown',
+    employee_count: 0,
+    industry: '',
+    main_business: '',
+    main_products: [],
+    customer_type: [],
+    business_model: 'other',
+    main_revenue_source: '',
+    revenue_last_year: 0,
+    profit_last_year: 0,
+    tax_paid_last_year: 0,
+    rd_expense_last_year: 0,
+    rd_expense_ratio: 0,
+    rd_employee_count: 0,
+    is_high_tech_enterprise: false,
+    is_tech_sme: false,
     has_specialized_new_sme: false,
-    patent_count: 6,
-    software_copyright_count: 12,
-    tax_credit_level: 'A',
+    patent_count: 0,
+    software_copyright_count: 0,
+    tax_credit_level: 'unknown',
     has_major_violation: false,
     social_security_normal: true,
-    apply_project_name: 'AI 数据治理平台产业化项目',
-    project_direction: 'AI',
-    project_stage: 'launched',
-    project_budget: 1200000,
-    registered_capital: 5000000,
-    business_address: '深圳市龙华区民治街道数字创新园'
+    apply_project_name: '',
+    project_direction: '',
+    project_stage: 'planning',
+    project_budget: 0,
+    registered_capital: 0,
+    business_address: ''
   };
 }
 

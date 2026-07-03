@@ -8,15 +8,13 @@
 - This file is the project's persistent agent context and core design document. At the start of each future project round, read this file first and follow it.
 - Unless explicitly stated otherwise, all project folders and files should be created under `D:\my project\policy-match-explainer`.
 
-## Enterprise Lookup Architecture
+## Enterprise Profile Input Architecture
 
-- Do not use DeepSeek or any LLM prompt to fabricate enterprise registry facts.
-- The company-name lookup flow is: user query -> LLM query planning -> backend data-source provider lookup -> raw payload storage -> LLM field extraction -> user confirmation -> policy matching/report.
-- DeepSeek can normalize the query, split search keywords, suggest data sources, extract profile fields from `raw_payload`, review policy matches, and draft reports.
-- Real enterprise facts must come from backend providers such as official open-data APIs, commercial company registry APIs, or a maintained internal policy/company data store.
-- The current MVP provider is `MVP demo company registry`; it is only for flow demonstration and must be labelled as demo data.
-- A future Longhua enterprise registry should be a local searchable index/cache built from authorized providers, not an unauthorized copied full registry or a crawler that bypasses public query restrictions.
-- The registry can prefill public fields, but revenue, profit, tax, R&D, social security, customer type, and project fields still require user confirmation or uploaded materials.
+- The current MVP enterprise profile input is fully manual. The user manually enters company name, credit code, business fields, financial fields, R&D fields, compliance fields, and project fields.
+- Do not expose company-name lookup, AI profile extraction, AI field decomposition, or automatic enterprise profile import in the profile input page.
+- DeepSeek remains available for policy match review and report writing after the user saves a manually entered profile.
+- Do not use DeepSeek or any LLM prompt to fabricate enterprise registry facts, enterprise operating data, financial data, tax data, R&D data, social security data, customer type, or project fields.
+- A future Longhua enterprise registry, if reintroduced, should be a separate optional local searchable index/cache built from authorized providers, not an unauthorized copied full registry or a crawler that bypasses public query restrictions.
 
 ## Round Log Requirement
 

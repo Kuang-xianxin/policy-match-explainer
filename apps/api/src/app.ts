@@ -1,20 +1,16 @@
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import {
-  companyLookupSearchSchema,
   createMatchRunSchema,
   enterpriseProfileSchema,
   loginSchema,
   registerSchema,
-  type CompanyLookupCandidate,
-  type CompanyLookupPlan,
   type EnterpriseProfile,
   type Policy
 } from '@policy-match/shared';
-import { extractEnterpriseProfile, generateReport, planCompanyLookup, reviewPolicyMatch } from '@policy-match/ai';
+import { generateReport, reviewPolicyMatch } from '@policy-match/ai';
 import { evaluatePolicy, levelFromFinalScore } from '@policy-match/matcher';
 import { env } from './config/env.js';
-import { searchDemoCompanies } from './data/demo-companies.js';
 import { pool } from './db/pool.js';
 import { createSession, hashPassword, hashToken, requireAuth, verifyPassword, type AuthenticatedRequest } from './services/auth.js';
 
@@ -98,136 +94,6 @@ export function createApp() {
   app.get('/api/policies', requireAuth, asyncHandler<AuthenticatedRequest>(async (_req, res) => {
     const result = await pool.query('SELECT id, title, category, source_url, status, policy_text, rules FROM policies ORDER BY title');
     res.json({ policies: result.rows });
-  }));
-
-  app.post('/api/company-lookup/search', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
-    const body = companyLookupSearchSchema.parse(req.body);
-    const lookupPlan: CompanyLookupPlan = await planCompanyLookup(body.query_name, aiConfig());
-    const searchKeywords = lookupPlan.search_keywords.length > 0 ? lookupPlan.search_keywords : [lookupPlan.normalized_query];
-    const companies = searchDemoCompanies(searchKeywords);
-    const candidates: CompanyLookupCandidate[] = [];
-    const sourceName = 'MVP demo company registry';
-    const sourceType = 'demo_seed';
-
-    for (const company of companies) {
-      const result = await pool.query(
-        `
-        INSERT INTO company_lookup_records
-          (user_id, query_name, selected_company_name, selected_credit_code, source_name, source_type, raw_payload, confidence)
-        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
-        RETURNING id
-        `,
-        [
-          req.user.id,
-          body.query_name,
-          company.company_name,
-          company.credit_code,
-          sourceName,
-          sourceType,
-          JSON.stringify(company),
-          0.85
-        ]
-      );
-      candidates.push({
-        lookup_id: result.rows[0].id,
-        company_name: company.company_name,
-        credit_code: company.credit_code,
-        business_address: company.business_address,
-        registration_status: company.registration_status,
-        source_name: sourceName,
-        source_type: sourceType,
-        confidence: 0.85
-      });
-    }
-
-    res.json({ candidates, lookup_plan: lookupPlan });
-  }));
-
-  app.get('/api/company-lookup/:id', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
-    const result = await pool.query('SELECT * FROM company_lookup_records WHERE id = $1 AND user_id = $2', [
-      req.params.id,
-      req.user.id
-    ]);
-    const record = result.rows[0];
-    if (!record) {
-      res.status(404).json({ error_code: 'NOT_FOUND', message: 'Company lookup record not found.' });
-      return;
-    }
-    res.json({ lookup: record });
-  }));
-
-  app.post('/api/company-lookup/:id/ai-extract', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
-    const result = await pool.query('SELECT * FROM company_lookup_records WHERE id = $1 AND user_id = $2', [
-      req.params.id,
-      req.user.id
-    ]);
-    const record = result.rows[0];
-    if (!record) {
-      res.status(404).json({ error_code: 'NOT_FOUND', message: 'Company lookup record not found.' });
-      return;
-    }
-
-    const extraction = await extractEnterpriseProfile(
-      { rawPayload: record.raw_payload, sourceName: record.source_name },
-      aiConfig()
-    );
-    const parsedProfile = enterpriseProfileSchema.parse(extraction.mapped_profile);
-
-    const updated = await pool.query(
-      `
-      UPDATE company_lookup_records
-      SET mapped_profile = $1::jsonb,
-          field_sources = $2::jsonb,
-          missing_fields = $3::jsonb,
-          ai_extracted_profile = $1::jsonb,
-          ai_confidence = $4,
-          ai_model_name = $5,
-          ai_prompt_snapshot = $6,
-          ai_error_message = NULL
-      WHERE id = $7 AND user_id = $8
-      RETURNING *
-      `,
-      [
-        JSON.stringify(parsedProfile),
-        JSON.stringify(extraction.field_sources),
-        JSON.stringify(extraction.missing_fields),
-        extraction.ai_confidence,
-        extraction.ai_mode === 'deepseek' ? env.deepseekModel : 'mock',
-        'extract_enterprise_profile_v1',
-        req.params.id,
-        req.user.id
-      ]
-    );
-
-    res.json({ lookup: updated.rows[0], extracted_profile: parsedProfile, ai_mode: extraction.ai_mode });
-  }));
-
-  app.post('/api/company-lookup/:id/import', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
-    const lookupResult = await pool.query('SELECT * FROM company_lookup_records WHERE id = $1 AND user_id = $2', [
-      req.params.id,
-      req.user.id
-    ]);
-    const lookup = lookupResult.rows[0];
-    if (!lookup?.mapped_profile) {
-      res.status(400).json({ error_code: 'COMPANY_LOOKUP_NOT_CONFIRMED', message: 'Run AI extract before import.' });
-      return;
-    }
-
-    const profile = enterpriseProfileSchema.parse(lookup.mapped_profile);
-    const created = await pool.query(
-      `
-      INSERT INTO enterprise_profiles (user_id, company_name, credit_code, profile)
-      VALUES ($1, $2, $3, $4::jsonb)
-      RETURNING *
-      `,
-      [req.user.id, profile.company_name, profile.credit_code, JSON.stringify(profile)]
-    );
-    await pool.query('UPDATE company_lookup_records SET is_imported = true WHERE id = $1 AND user_id = $2', [
-      req.params.id,
-      req.user.id
-    ]);
-
-    res.status(201).json({ enterprise_profile: created.rows[0] });
   }));
 
   app.post('/api/enterprise-profiles', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {

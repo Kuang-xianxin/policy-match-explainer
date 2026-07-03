@@ -1,3 +1,4 @@
+import type { EnterpriseProfile } from '@policy-match/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../app.js';
@@ -7,6 +8,42 @@ import { seedPolicies } from '../db/seed.js';
 
 const app = createApp();
 
+const manualProfile: EnterpriseProfile = {
+  company_name: '深圳市龙华智造科技有限公司',
+  credit_code: '91440300MA5DEMO001',
+  city: '深圳市',
+  district: '龙华区',
+  registered_year: 2020,
+  listed_status: 'unlisted',
+  employee_count: 80,
+  industry: '软件和信息技术服务业',
+  main_business: '人工智能、数据治理和企业数字化软件服务。',
+  main_products: ['AI 数据治理平台', '企业政策分析系统'],
+  customer_type: ['enterprise', 'government'],
+  business_model: 'SaaS',
+  main_revenue_source: '软件订阅、项目交付和技术服务',
+  revenue_last_year: 6000000,
+  profit_last_year: 900000,
+  tax_paid_last_year: 350000,
+  rd_expense_last_year: 900000,
+  rd_expense_ratio: 15,
+  rd_employee_count: 24,
+  is_high_tech_enterprise: true,
+  is_tech_sme: true,
+  has_specialized_new_sme: false,
+  patent_count: 6,
+  software_copyright_count: 12,
+  tax_credit_level: 'A',
+  has_major_violation: false,
+  social_security_normal: true,
+  apply_project_name: 'AI 数据治理平台产业化项目',
+  project_direction: 'AI',
+  project_stage: 'launched',
+  project_budget: 1200000,
+  registered_capital: 5000000,
+  business_address: '深圳市龙华区民治街道数字创新园'
+};
+
 async function register(email: string) {
   const response = await request(app).post('/api/auth/register').send({
     email,
@@ -15,6 +52,15 @@ async function register(email: string) {
   });
   expect(response.status).toBe(201);
   return response.body.token as string;
+}
+
+async function createManualProfile(token: string): Promise<string> {
+  const created = await request(app)
+    .post('/api/enterprise-profiles')
+    .set('Authorization', `Bearer ${token}`)
+    .send(manualProfile);
+  expect(created.status).toBe(201);
+  return created.body.enterprise_profile.id as string;
 }
 
 describe('policy match MVP flow', () => {
@@ -27,7 +73,7 @@ describe('policy match MVP flow', () => {
     await closePool();
   });
 
-  it('runs company lookup, AI extraction, profile import, matching, and report on PostgreSQL', async () => {
+  it('runs manual profile save, matching, and report on PostgreSQL', async () => {
     const token = await register('demo@example.com');
 
     const health = await request(app).get('/health');
@@ -37,31 +83,7 @@ describe('policy match MVP flow', () => {
     expect(aiStatus.body.provider).toBe('deepseek');
     expect(aiStatus.body).toHaveProperty('configured');
 
-    const lookupSearch = await request(app)
-      .post('/api/company-lookup/search')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ query_name: '龙华智造' });
-    expect(lookupSearch.status).toBe(200);
-    expect(lookupSearch.body.lookup_plan.ai_mode).toMatch(/deepseek|mock/);
-    expect(lookupSearch.body.lookup_plan.search_keywords.length).toBeGreaterThan(0);
-    expect(lookupSearch.body.candidates.length).toBeGreaterThan(0);
-    expect(lookupSearch.body.candidates[0].source_type).toBe('demo_seed');
-
-    const lookupId = lookupSearch.body.candidates[0].lookup_id as string;
-    const extracted = await request(app)
-      .post(`/api/company-lookup/${lookupId}/ai-extract`)
-      .set('Authorization', `Bearer ${token}`)
-      .send();
-    expect(extracted.status).toBe(200);
-    expect(extracted.body.ai_mode).toMatch(/deepseek|mock/);
-    expect(extracted.body.extracted_profile.company_name).toContain('龙华');
-
-    const imported = await request(app)
-      .post(`/api/company-lookup/${lookupId}/import`)
-      .set('Authorization', `Bearer ${token}`)
-      .send();
-    expect(imported.status).toBe(201);
-    const profileId = imported.body.enterprise_profile.id as string;
+    const profileId = await createManualProfile(token);
 
     const matchRun = await request(app)
       .post('/api/match-runs')
@@ -80,31 +102,23 @@ describe('policy match MVP flow', () => {
     expect(report.body.report.content_text).toContain('综合结论');
   });
 
-  it('does not fabricate company candidates when the configured provider has no match', async () => {
+  it('rejects an incomplete manually entered profile', async () => {
     const token = await register('missing@example.com');
 
-    const lookupSearch = await request(app)
-      .post('/api/company-lookup/search')
+    const created = await request(app)
+      .post('/api/enterprise-profiles')
       .set('Authorization', `Bearer ${token}`)
-      .send({ query_name: 'NoSuchCompanyABCXYZ' });
+      .send({ ...manualProfile, company_name: '' });
 
-    expect(lookupSearch.status).toBe(200);
-    expect(lookupSearch.body.lookup_plan.ai_mode).toMatch(/deepseek|mock/);
-    expect(lookupSearch.body.candidates).toEqual([]);
+    expect(created.status).toBe(400);
+    expect(created.body.error_code).toBe('VALIDATION_ERROR');
   });
 
   it('prevents users from reading another user profile or match run', async () => {
     const tokenA = await register('owner@example.com');
     const tokenB = await register('other@example.com');
 
-    const lookupSearch = await request(app)
-      .post('/api/company-lookup/search')
-      .set('Authorization', `Bearer ${tokenA}`)
-      .send({ query_name: '龙华智造' });
-    const lookupId = lookupSearch.body.candidates[0].lookup_id as string;
-    await request(app).post(`/api/company-lookup/${lookupId}/ai-extract`).set('Authorization', `Bearer ${tokenA}`).send();
-    const imported = await request(app).post(`/api/company-lookup/${lookupId}/import`).set('Authorization', `Bearer ${tokenA}`).send();
-    const profileId = imported.body.enterprise_profile.id as string;
+    const profileId = await createManualProfile(tokenA);
     const matchRun = await request(app)
       .post('/api/match-runs')
       .set('Authorization', `Bearer ${tokenA}`)

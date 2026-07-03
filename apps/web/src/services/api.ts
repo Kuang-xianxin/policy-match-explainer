@@ -1,4 +1,4 @@
-import type { CompanyLookupPlan, EnterpriseProfile } from '@policy-match/shared';
+import type { EnterpriseProfile } from '@policy-match/shared';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
 
@@ -12,29 +12,6 @@ export interface AiStatus {
   configured: boolean;
   model: string;
   mode: 'deepseek' | 'mock';
-}
-
-export interface Candidate {
-  lookup_id: string;
-  company_name: string;
-  credit_code: string;
-  business_address: string;
-  registration_status: string;
-  source_name: string;
-  source_type?: string;
-  confidence?: number;
-}
-
-export type LookupPlan = CompanyLookupPlan;
-
-export interface LookupRecord {
-  id: string;
-}
-
-export interface ExtractResponse {
-  lookup: LookupRecord;
-  extracted_profile: EnterpriseProfile;
-  ai_mode: 'deepseek' | 'mock';
 }
 
 export interface EnterpriseProfileRecord {

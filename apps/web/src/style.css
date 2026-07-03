@@ -184,26 +184,18 @@ label {
   font-size: 13px;
 }
 
-.button-row,
-.lookup-bar {
+.button-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
-.lookup-bar input {
-  min-width: min(460px, 100%);
-  flex: 1;
-}
-
-.candidate-list,
 .profile-list {
   display: grid;
   gap: 8px;
   margin-top: 14px;
 }
 
-.candidate-list button,
 .profile-list button {
   display: flex;
   justify-content: space-between;
@@ -213,55 +205,16 @@ label {
   text-align: left;
 }
 
-.candidate-list button {
-  align-items: flex-start;
-  flex-direction: column;
-}
-
 .profile-list span,
-.candidate-list span,
-.candidate-list small,
 .profile-list small {
   display: block;
 }
 
-.candidate-list small,
 .profile-list small,
 .result-row small,
 .hint,
-.empty-text,
 .note-panel small {
   color: #65736f;
-}
-
-.lookup-plan {
-  display: grid;
-  gap: 6px;
-  border-left: 3px solid #1f6f63;
-  background: #f7fbfa;
-  margin-top: 12px;
-  padding: 12px;
-}
-
-.lookup-plan div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.lookup-plan p,
-.lookup-plan small,
-.empty-text {
-  margin-bottom: 0;
-}
-
-.lookup-plan span {
-  border-radius: 999px;
-  background: #e5f2ee;
-  color: #1f6f63;
-  padding: 4px 8px;
-  font-size: 12px;
 }
 
 .profile-grid {
@@ -272,6 +225,29 @@ label {
 
 .profile-grid label:has(textarea) {
   grid-column: span 2;
+}
+
+.field-block {
+  display: grid;
+  gap: 8px;
+  color: #44504c;
+  font-size: 13px;
+}
+
+.checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.checkbox-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.checkbox-row input {
+  width: auto;
 }
 
 .result-head,

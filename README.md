@@ -10,19 +10,11 @@
 - 校验：Zod
 - 匹配：规则权重评分 + DeepSeek 复核增强
 
-## 企业查询画像方案
+## 企业画像输入方案
 
-第一版不让 DeepSeek 直接“生成”企业事实。推荐流程是：
+当前 MVP 的企业画像全部由用户手动填写，企业名称和统一社会信用代码也手动输入。画像输入页不再提供企业名称自动补全、AI 字段解耦或自动导入画像草稿。
 
-1. 用户输入企业名称。
-2. DeepSeek 只生成查询计划：规范企业名、拆分关键词、建议数据源。
-3. 后端 provider 调用真实数据源获取企业原始记录，例如官方开放数据、企查查等商业企业库，或后续自建采集库。
-4. DeepSeek 基于 provider 返回的 `raw_payload` 做字段解耦，生成企业画像草稿和字段来源说明。
-5. 用户确认画像后再保存、匹配政策、生成报告。
-
-当前 MVP 只有 `MVP demo company registry` 演示 provider。没有命中的企业不会返回假候选；真实上线前需要接入正式企业数据源。
-
-龙华区企业库可行性方案见：`docs/research/longhua-enterprise-registry-feasibility.md`。
+DeepSeek 仍用于用户保存画像之后的政策匹配复核和文字报告生成。龙华区企业库可行性方案保留为后续可选研究，见：`docs/research/longhua-enterprise-registry-feasibility.md`。
 
 ## 本地运行
 
