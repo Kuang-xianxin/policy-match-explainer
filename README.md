@@ -22,6 +22,8 @@
 
 当前 MVP 只有 `MVP demo company registry` 演示 provider。没有命中的企业不会返回假候选；真实上线前需要接入正式企业数据源。
 
+龙华区企业库可行性方案见：`docs/research/longhua-enterprise-registry-feasibility.md`。
+
 ## 本地运行
 
 1. 安装依赖：
