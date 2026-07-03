@@ -19,6 +19,10 @@ const queryName = ref('龙华智造');
 const errorText = ref('');
 const profile = computed(() => appState.draftProfile);
 
+function formatConfidence(value?: number): string {
+  return `${Math.round((value ?? 0) * 100)}%`;
+}
+
 async function doSearch() {
   errorText.value = '';
   try {
@@ -70,9 +74,23 @@ async function doMatch(profileId: string) {
       <p class="hint">AI 解耦状态：{{ appState.aiStatus?.configured ? 'DeepSeek API' : 'mock 开发模式' }}</p>
       <p v-if="errorText" class="error-text">{{ errorText }}</p>
 
+      <div v-if="appState.lookupPlan" class="lookup-plan">
+        <div>
+          <strong>查询计划</strong>
+          <span>{{ appState.lookupPlan.ai_mode === 'deepseek' ? 'DeepSeek' : 'Mock' }}</span>
+        </div>
+        <p>{{ appState.lookupPlan.explanation }}</p>
+        <small>关键词：{{ appState.lookupPlan.search_keywords.join(' / ') }}</small>
+      </div>
+
+      <p v-if="appState.lookupPlan && !appState.candidates.length" class="empty-text">
+        当前数据源没有命中候选企业。真实上线时应接入官方开放数据或商业企业库，DeepSeek 只负责查询规划和字段解耦。
+      </p>
+
       <div v-if="appState.candidates.length" class="candidate-list">
         <button v-for="item in appState.candidates" :key="item.lookup_id" @click="doExtract(item.lookup_id)">
           <span>{{ item.company_name }}</span>
+          <small>{{ item.source_name }} · {{ item.source_type }} · {{ formatConfidence(item.confidence) }}</small>
           <small>{{ item.credit_code }} · {{ item.registration_status }} · {{ item.business_address }}</small>
         </button>
       </div>

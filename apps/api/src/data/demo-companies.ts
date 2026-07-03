@@ -41,9 +41,31 @@ const demoCompanies: DemoCompanyPayload[] = [
   }
 ];
 
-export function findDemoCompanies(queryName: string): DemoCompanyPayload[] {
-  const normalized = queryName.trim().toLowerCase();
-  const matched = demoCompanies.filter((company) => company.company_name.toLowerCase().includes(normalized));
-  if (matched.length > 0) return matched;
-  return demoCompanies;
+function normalizeSearchText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function keywordVariants(keyword: string): string[] {
+  const normalized = normalizeSearchText(keyword);
+  const withoutCompanySuffix = normalized.replace(/(有限责任公司|股份有限公司|有限公司|公司)$/u, '');
+  return Array.from(new Set([normalized, withoutCompanySuffix].filter(Boolean)));
+}
+
+export function searchDemoCompanies(keywords: string[]): DemoCompanyPayload[] {
+  const normalizedKeywords = keywords.flatMap(keywordVariants);
+  if (normalizedKeywords.length === 0) return [];
+
+  return demoCompanies.filter((company) => {
+    const searchableText = normalizeSearchText(
+      [
+        company.company_name,
+        company.credit_code,
+        company.business_address,
+        company.registration_status,
+        company.industry,
+        company.business_scope
+      ].join(' ')
+    );
+    return normalizedKeywords.some((keyword) => searchableText.includes(keyword));
+  });
 }

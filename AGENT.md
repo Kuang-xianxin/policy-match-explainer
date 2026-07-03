@@ -8,6 +8,14 @@
 - This file is the project's persistent agent context and core design document. At the start of each future project round, read this file first and follow it.
 - Unless explicitly stated otherwise, all project folders and files should be created under `D:\my project\policy-match-explainer`.
 
+## Enterprise Lookup Architecture
+
+- Do not use DeepSeek or any LLM prompt to fabricate enterprise registry facts.
+- The company-name lookup flow is: user query -> LLM query planning -> backend data-source provider lookup -> raw payload storage -> LLM field extraction -> user confirmation -> policy matching/report.
+- DeepSeek can normalize the query, split search keywords, suggest data sources, extract profile fields from `raw_payload`, review policy matches, and draft reports.
+- Real enterprise facts must come from backend providers such as official open-data APIs, commercial company registry APIs, or a maintained internal policy/company data store.
+- The current MVP provider is `MVP demo company registry`; it is only for flow demonstration and must be labelled as demo data.
+
 ## Round Log Requirement
 
 The project must keep a JSON Lines log file named `rounds.jsonl`.

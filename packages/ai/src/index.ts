@@ -1,6 +1,7 @@
 import type {
   AiMatchReview,
   BaselineMatchResult,
+  CompanyLookupPlan,
   EnterpriseProfile,
   FieldSource,
   Policy
@@ -23,6 +24,10 @@ export interface ExtractedProfileResult {
   missing_fields: string[];
   ai_confidence: number;
   ai_mode: 'deepseek' | 'mock';
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return Array.from(new Set(values.map((item) => item.trim()).filter(Boolean)));
 }
 
 function hasApiKey(config: AiConfig): boolean {
@@ -54,6 +59,54 @@ async function callDeepSeekJson<T>(config: AiConfig, systemPrompt: string, userP
   const content = json.choices?.[0]?.message?.content;
   if (!content) throw new Error('DeepSeek returned empty content');
   return JSON.parse(content) as T;
+}
+
+function mockCompanyLookupPlan(queryName: string): CompanyLookupPlan {
+  const normalizedQuery = queryName.trim();
+  const withoutCompanySuffix = normalizedQuery.replace(/(有限责任公司|股份有限公司|有限公司|公司)$/u, '');
+  const searchKeywords = uniqueNonEmpty([normalizedQuery, withoutCompanySuffix]);
+
+  return {
+    normalized_query: normalizedQuery,
+    search_keywords: searchKeywords.length > 0 ? searchKeywords : [normalizedQuery],
+    recommended_sources: ['commercial_company_registry_api', 'official_open_data_api'],
+    explanation:
+      'Mock mode only normalizes the company query. Real enterprise facts must come from backend data providers, not from model generation.',
+    ai_mode: 'mock'
+  };
+}
+
+export async function planCompanyLookup(queryName: string, config: AiConfig): Promise<CompanyLookupPlan> {
+  if (!hasApiKey(config)) return mockCompanyLookupPlan(queryName);
+
+  const result = await callDeepSeekJson<Partial<CompanyLookupPlan>>(
+    config,
+    [
+      'You are an enterprise lookup query planner for a policy matching system.',
+      'You cannot browse the web and you must not invent company candidates or enterprise facts.',
+      'Only output a JSON query plan for backend data-source tools.',
+      'The backend will use official/commercial data providers to fetch raw company records.',
+      'Output JSON keys: normalized_query, search_keywords, recommended_sources, explanation.'
+    ].join('\n'),
+    { query_name: queryName }
+  );
+
+  const fallback = mockCompanyLookupPlan(queryName);
+  const searchKeywords = uniqueNonEmpty(
+    Array.isArray(result.search_keywords) ? result.search_keywords.map(String) : fallback.search_keywords
+  );
+  const recommendedSources = uniqueNonEmpty(
+    Array.isArray(result.recommended_sources)
+      ? result.recommended_sources.map(String)
+      : fallback.recommended_sources
+  );
+  return {
+    normalized_query: String(result.normalized_query ?? fallback.normalized_query).trim() || fallback.normalized_query,
+    search_keywords: searchKeywords.length > 0 ? searchKeywords : fallback.search_keywords,
+    recommended_sources: recommendedSources.length > 0 ? recommendedSources : fallback.recommended_sources,
+    explanation: String(result.explanation ?? fallback.explanation),
+    ai_mode: 'deepseek'
+  };
 }
 
 function mockExtractProfile(input: ExtractProfileInput): ExtractedProfileResult {
@@ -97,11 +150,12 @@ function mockExtractProfile(input: ExtractProfileInput): ExtractedProfileResult 
   };
 
   const inferredFields = ['industry', 'main_business', 'main_products', 'business_model'];
+  const sourceIsDemo = input.sourceName.toLowerCase().includes('demo');
   const fieldSources = Object.keys(mappedProfile).map((fieldKey) => ({
     field_key: fieldKey,
     source_name: inferredFields.includes(fieldKey) ? 'DeepSeek mock inference from demo payload' : input.sourceName,
-    source_type: inferredFields.includes(fieldKey) ? 'inferred' : 'official_open_data',
-    confidence: inferredFields.includes(fieldKey) ? 0.72 : 0.9,
+    source_type: inferredFields.includes(fieldKey) || sourceIsDemo ? 'inferred' : 'official_open_data',
+    confidence: inferredFields.includes(fieldKey) || sourceIsDemo ? 0.72 : 0.9,
     is_user_confirmed: false
   })) satisfies FieldSource[];
 

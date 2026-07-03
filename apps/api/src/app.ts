@@ -6,13 +6,15 @@ import {
   enterpriseProfileSchema,
   loginSchema,
   registerSchema,
+  type CompanyLookupCandidate,
+  type CompanyLookupPlan,
   type EnterpriseProfile,
   type Policy
 } from '@policy-match/shared';
-import { extractEnterpriseProfile, generateReport, reviewPolicyMatch } from '@policy-match/ai';
+import { extractEnterpriseProfile, generateReport, planCompanyLookup, reviewPolicyMatch } from '@policy-match/ai';
 import { evaluatePolicy, levelFromFinalScore } from '@policy-match/matcher';
 import { env } from './config/env.js';
-import { findDemoCompanies } from './data/demo-companies.js';
+import { searchDemoCompanies } from './data/demo-companies.js';
 import { pool } from './db/pool.js';
 import { createSession, hashPassword, hashToken, requireAuth, verifyPassword, type AuthenticatedRequest } from './services/auth.js';
 
@@ -100,8 +102,12 @@ export function createApp() {
 
   app.post('/api/company-lookup/search', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
     const body = companyLookupSearchSchema.parse(req.body);
-    const companies = findDemoCompanies(body.query_name);
-    const candidates = [];
+    const lookupPlan: CompanyLookupPlan = await planCompanyLookup(body.query_name, aiConfig());
+    const searchKeywords = lookupPlan.search_keywords.length > 0 ? lookupPlan.search_keywords : [lookupPlan.normalized_query];
+    const companies = searchDemoCompanies(searchKeywords);
+    const candidates: CompanyLookupCandidate[] = [];
+    const sourceName = 'MVP demo company registry';
+    const sourceType = 'demo_seed';
 
     for (const company of companies) {
       const result = await pool.query(
@@ -116,8 +122,8 @@ export function createApp() {
           body.query_name,
           company.company_name,
           company.credit_code,
-          'MVP demo company registry',
-          'official_open_data',
+          sourceName,
+          sourceType,
           JSON.stringify(company),
           0.85
         ]
@@ -128,11 +134,13 @@ export function createApp() {
         credit_code: company.credit_code,
         business_address: company.business_address,
         registration_status: company.registration_status,
-        source_name: 'MVP demo company registry'
+        source_name: sourceName,
+        source_type: sourceType,
+        confidence: 0.85
       });
     }
 
-    res.json({ candidates });
+    res.json({ candidates, lookup_plan: lookupPlan });
   }));
 
   app.get('/api/company-lookup/:id', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {

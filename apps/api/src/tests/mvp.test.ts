@@ -42,7 +42,10 @@ describe('policy match MVP flow', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ query_name: '龙华智造' });
     expect(lookupSearch.status).toBe(200);
+    expect(lookupSearch.body.lookup_plan.ai_mode).toMatch(/deepseek|mock/);
+    expect(lookupSearch.body.lookup_plan.search_keywords.length).toBeGreaterThan(0);
     expect(lookupSearch.body.candidates.length).toBeGreaterThan(0);
+    expect(lookupSearch.body.candidates[0].source_type).toBe('demo_seed');
 
     const lookupId = lookupSearch.body.candidates[0].lookup_id as string;
     const extracted = await request(app)
@@ -75,6 +78,19 @@ describe('policy match MVP flow', () => {
       .send();
     expect(report.status).toBe(201);
     expect(report.body.report.content_text).toContain('综合结论');
+  });
+
+  it('does not fabricate company candidates when the configured provider has no match', async () => {
+    const token = await register('missing@example.com');
+
+    const lookupSearch = await request(app)
+      .post('/api/company-lookup/search')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ query_name: 'NoSuchCompanyABCXYZ' });
+
+    expect(lookupSearch.status).toBe(200);
+    expect(lookupSearch.body.lookup_plan.ai_mode).toMatch(/deepseek|mock/);
+    expect(lookupSearch.body.candidates).toEqual([]);
   });
 
   it('prevents users from reading another user profile or match run', async () => {

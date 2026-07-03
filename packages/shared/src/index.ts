@@ -117,6 +117,14 @@ export interface FieldSource {
   is_user_confirmed: boolean;
 }
 
+export interface CompanyLookupPlan {
+  normalized_query: string;
+  search_keywords: string[];
+  recommended_sources: string[];
+  explanation: string;
+  ai_mode: 'deepseek' | 'mock';
+}
+
 export interface CompanyLookupCandidate {
   lookup_id: string;
   company_name: string;
@@ -124,6 +132,8 @@ export interface CompanyLookupCandidate {
   business_address: string;
   registration_status: string;
   source_name: string;
+  source_type?: string;
+  confidence?: number;
 }
 
 export type RuleOperator =

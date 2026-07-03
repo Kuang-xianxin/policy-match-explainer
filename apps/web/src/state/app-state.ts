@@ -6,6 +6,7 @@ import {
   type Candidate,
   type EnterpriseProfileRecord,
   type ExtractResponse,
+  type LookupPlan,
   type LookupRecord,
   type MatchResult,
   type MatchRun,
@@ -19,6 +20,7 @@ export const appState = reactive({
   statusText: '',
   aiStatus: null as AiStatus | null,
   candidates: [] as Candidate[],
+  lookupPlan: null as LookupPlan | null,
   lookup: null as LookupRecord | null,
   draftProfile: null as EnterpriseProfile | null,
   profiles: [] as EnterpriseProfileRecord[],
@@ -62,6 +64,7 @@ export function logout(): void {
   appState.user = null;
   appState.statusText = '已退出';
   appState.candidates = [];
+  appState.lookupPlan = null;
   appState.lookup = null;
   appState.draftProfile = null;
   appState.profiles = [];
@@ -72,12 +75,13 @@ export function logout(): void {
 }
 
 export async function searchCompany(queryName: string): Promise<void> {
-  const data = await api<{ candidates: Candidate[] }>(
+  const data = await api<{ candidates: Candidate[]; lookup_plan: LookupPlan }>(
     '/api/company-lookup/search',
     appState.token,
     { method: 'POST', body: JSON.stringify({ query_name: queryName }) }
   );
   appState.candidates = data.candidates;
+  appState.lookupPlan = data.lookup_plan;
   appState.lookup = null;
   appState.draftProfile = null;
   appState.statusText = `找到 ${data.candidates.length} 个候选企业`;
@@ -148,6 +152,7 @@ export async function generateReport(): Promise<void> {
 
 export function useDemoProfile(): void {
   appState.lookup = null;
+  appState.lookupPlan = null;
   appState.draftProfile = {
     company_name: '深圳市龙华智造科技有限公司',
     credit_code: '91440300MA5DEMO001',
