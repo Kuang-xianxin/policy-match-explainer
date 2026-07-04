@@ -163,7 +163,7 @@ describe('policy match MVP flow', () => {
     expect(report.body.report.content_text).toContain('综合结论');
   });
 
-  it('supports a non-registry abbreviation by creating a completed inferred draft', async () => {
+  it('keeps a non-registry abbreviation visibly unverified instead of inventing a formal company name', async () => {
     const token = await register('abbr@example.com');
     const lookup = await request(app)
       .post('/api/company-lookup/search')
@@ -172,15 +172,45 @@ describe('policy match MVP flow', () => {
     expect(lookup.status).toBe(200);
     expect(lookup.body.candidates).toHaveLength(1);
     expect(lookup.body.candidates[0].source_type).toBe('inferred');
-    expect(lookup.body.candidates[0].company_name).toBe('深圳市星河智算科技有限公司');
+    expect(lookup.body.candidates[0].company_name).toBe('星河智算（待确认主体）');
+    expect(lookup.body.candidates[0].company_name).not.toBe('深圳市星河智算科技有限公司');
 
     const generated = await request(app)
       .post(`/api/company-lookup/${lookup.body.candidates[0].lookup_id}/generate-profile`)
       .set('Authorization', `Bearer ${token}`)
       .send();
     expect(generated.status).toBe(200);
-    expect(generated.body.enterprise_profile.company_name).toBe('深圳市星河智算科技有限公司');
+    expect(generated.body.enterprise_profile.company_name).toBe('星河智算（待确认主体）');
     expect(generated.body.enterprise_profile.main_business).toContain('待用户确认');
+  });
+
+  it('uses curated public evidence for the Huaao Data abbreviation instead of inventing a company name', async () => {
+    const token = await register('huaao@example.com');
+    const lookup = await request(app)
+      .post('/api/company-lookup/search')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ query_name: '华傲数据' });
+
+    expect(lookup.status).toBe(200);
+    expect(lookup.body.candidates.length).toBeGreaterThan(0);
+    expect(lookup.body.candidates[0].company_name).toBe('深圳市华傲数据技术有限公司');
+    expect(lookup.body.candidates[0].credit_code).toBe('914403005685284492');
+    expect(lookup.body.candidates[0].source_type).toBe('official_public_page');
+
+    const generated = await request(app)
+      .post(`/api/company-lookup/${lookup.body.candidates[0].lookup_id}/generate-profile`)
+      .set('Authorization', `Bearer ${token}`)
+      .send();
+
+    expect(generated.status).toBe(200);
+    expect(generated.body.enterprise_profile.company_name).toBe('深圳市华傲数据技术有限公司');
+    expect(generated.body.enterprise_profile.legal_representative).toBe('贾西贝');
+    expect(generated.body.enterprise_profile.registered_year).toBe(2011);
+    expect(generated.body.enterprise_profile.business_address).toContain('汇德大厦');
+    expect(generated.body.enterprise_profile.main_products).toContain('数据质量管理系统');
+    expect(generated.body.enterprise_profile.known_projects).toContain('龙华区企业服务平台');
+    expect(generated.body.missing_fields).not.toContain('employee_count');
+    expect(generated.body.field_sources.some((item: { source_type: string }) => item.source_type === 'official_public_page')).toBe(true);
   });
 
   it('matches a non-registry specialized equipment profile without relying on demo companies', async () => {
@@ -253,7 +283,7 @@ describe('policy match MVP flow', () => {
 
     expect(lookup.status).toBe(200);
     expect(lookup.body.lookup_plan.normalized_query).toBe('星河智算');
-    expect(lookup.body.candidates[0].company_name).toBe('深圳市星河智算科技有限公司');
+    expect(lookup.body.candidates[0].company_name).toBe('星河智算（待确认主体）');
   });
 
   it('prevents users from generating a profile from another user lookup record', async () => {

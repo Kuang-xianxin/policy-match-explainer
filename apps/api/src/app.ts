@@ -15,6 +15,7 @@ import {
 import { extractEnterpriseProfile, generateReport, planCompanyLookup, reviewPolicyMatch } from '@policy-match/ai';
 import { evaluatePolicy, levelFromFinalScore } from '@policy-match/matcher';
 import { env } from './config/env.js';
+import { searchCuratedEnterpriseResearch } from './data/curated-enterprises.js';
 import { searchDemoCompanies, type DemoCompanyPayload } from './data/demo-companies.js';
 import { pool } from './db/pool.js';
 import {
@@ -107,8 +108,7 @@ function simpleHash(value: string): string {
 function normalizeDraftCompanyName(queryName: string): string {
   const cleanName = queryName.trim().replace(/\s+/g, '');
   if (/公司|企业|厂$/u.test(cleanName)) return cleanName;
-  if (cleanName.startsWith('深圳市')) return `${cleanName}科技有限公司`;
-  return `深圳市${cleanName}科技有限公司`;
+  return `${cleanName}（待确认主体）`;
 }
 
 function candidateConfidence(queryName: string, candidate: DemoCompanyPayload): number {
@@ -414,8 +414,51 @@ export function createApp() {
     const plan = await planCompanyLookup(body.query_name, aiConfig());
     const candidates: CompanyLookupCandidate[] = [];
     let lookupPlan = plan;
+    const curatedCompanies = searchCuratedEnterpriseResearch([body.query_name, ...plan.search_keywords]);
 
-    if (env.doubaoApiKey) {
+    for (const company of curatedCompanies) {
+      const inserted = await pool.query(
+        `
+        INSERT INTO company_lookup_records (
+          user_id, query_name, selected_company_name, selected_credit_code,
+          source_name, source_type, raw_payload, confidence
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+        RETURNING id
+        `,
+        [
+          req.user.id,
+          body.query_name,
+          company.company_name,
+          company.credit_code,
+          'curated_public_enterprise_index',
+          company.source_type,
+          JSON.stringify(company),
+          company.confidence
+        ]
+      );
+
+      candidates.push({
+        lookup_id: inserted.rows[0].id,
+        company_name: company.company_name,
+        credit_code: company.credit_code,
+        business_address: company.business_address ?? '',
+        registration_status: company.registration_status ?? '公开资料待核验',
+        source_name: '公开证据企业索引',
+        source_type: company.source_type,
+        confidence: company.confidence
+      });
+    }
+
+    if (curatedCompanies.length > 0) {
+      lookupPlan = {
+        ...plan,
+        recommended_sources: Array.from(new Set(['curated_public_enterprise_index', ...plan.recommended_sources])),
+        explanation: `${plan.explanation} 已命中本地公开证据企业索引。`
+      };
+    }
+
+    if (candidates.length === 0 && env.doubaoApiKey) {
       try {
         const researchedCompanies = await researchCompaniesWithDoubao(body.query_name, plan.search_keywords, doubaoConfig());
         for (const company of researchedCompanies) {
@@ -573,11 +616,11 @@ export function createApp() {
           ...cleanFieldSources(extracted.field_sources, record.source_name, isInferredLookup)
         ]);
     const missingFields = Array.from(
-      new Set([
-        ...extracted.missing_fields,
-        ...(isCompanyResearchPayload(rawPayload)
+      new Set(
+        isCompanyResearchPayload(rawPayload)
           ? missingFieldsForProfile(enterpriseProfile)
           : [
+              ...extracted.missing_fields,
               'employee_count',
               'revenue_last_year',
               'profit_last_year',
@@ -585,8 +628,8 @@ export function createApp() {
               'rd_expense_last_year',
               'rd_employee_count',
               'project_budget'
-            ])
-      ])
+            ]
+      )
     );
 
     await pool.query(
