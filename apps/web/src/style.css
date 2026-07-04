@@ -226,6 +226,12 @@ label {
   font-size: 13px;
 }
 
+.lookup-plan .plan-explanation {
+  flex-basis: 100%;
+  border-radius: 8px;
+  line-height: 1.5;
+}
+
 .candidate-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

@@ -103,14 +103,41 @@ function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, '').replace(/^深圳市?/u, '深圳');
 }
 
+const genericSearchTerms = new Set([
+  '深圳',
+  '深圳市',
+  '龙华',
+  '龙华区',
+  '公司',
+  '有限公司',
+  '股份有限公司',
+  '科技',
+  '科技公司',
+  '技术公司',
+  '技术有限公司',
+  '软件',
+  '信息技术',
+  '大数据',
+  '企业'
+]);
+
+function isGenericSearchTerm(value: string): boolean {
+  return genericSearchTerms.has(value) || value.length < 2;
+}
+
 function matchesKeyword(record: CuratedEnterpriseRecord, keyword: string): boolean {
   const normalizedKeyword = normalizeSearchText(keyword);
-  if (!normalizedKeyword) return false;
+  if (!normalizedKeyword || isGenericSearchTerm(normalizedKeyword)) return false;
+  const normalizedCompanyName = normalizeSearchText(record.company_name);
+  const normalizedAliases = record.aliases.map(normalizeSearchText);
+  if (normalizedAliases.includes(normalizedKeyword)) return true;
+  if (normalizedKeyword === normalizedCompanyName || normalizedKeyword.includes(normalizedCompanyName)) return true;
+
   const haystack = [record.company_name, record.credit_code, record.business_address, record.industry, ...record.aliases]
     .filter((value): value is string => typeof value === 'string')
     .map(normalizeSearchText)
     .join(' ');
-  return haystack.includes(normalizedKeyword) || normalizedKeyword.includes(normalizeSearchText(record.company_name));
+  return normalizedKeyword.length >= 4 && haystack.includes(normalizedKeyword);
 }
 
 export function searchCuratedEnterpriseResearch(keywords: string[]): CompanyResearchPayload[] {

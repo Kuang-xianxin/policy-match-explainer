@@ -208,6 +208,7 @@ async function doMatch(profileId: string) {
         <span>模式：{{ modeLabel(appState.lookupPlan.ai_mode) }}</span>
         <span>标准查询：{{ appState.lookupPlan.normalized_query }}</span>
         <span>关键词：{{ appState.lookupPlan.search_keywords.join('、') }}</span>
+        <span class="plan-explanation">说明：{{ appState.lookupPlan.explanation }}</span>
       </div>
 
       <div v-if="appState.candidates.length > 0" class="candidate-list">

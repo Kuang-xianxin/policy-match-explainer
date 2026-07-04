@@ -110,6 +110,12 @@ export function logout(): void {
 }
 
 export async function searchCompany(queryName: string): Promise<void> {
+  appState.lookupPlan = null;
+  appState.candidates = [];
+  appState.generatedProfileMeta = null;
+  appState.draftProfile = null;
+  appState.statusText = '正在查询候选企业';
+
   const data = await api<{ lookup_plan: LookupPlan; candidates: Candidate[] }>(
     '/api/company-lookup/search',
     appState.token,
@@ -117,8 +123,6 @@ export async function searchCompany(queryName: string): Promise<void> {
   );
   appState.lookupPlan = data.lookup_plan;
   appState.candidates = data.candidates;
-  appState.generatedProfileMeta = null;
-  appState.draftProfile = null;
   appState.statusText = `找到 ${data.candidates.length} 个候选企业`;
 }
 
