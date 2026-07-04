@@ -19,6 +19,8 @@ export interface EnterpriseProfileRecord {
   company_name: string;
   credit_code: string;
   profile: EnterpriseProfile;
+  source_type: string;
+  verification_status: string;
 }
 
 export type Candidate = CompanyLookupCandidate;
@@ -34,6 +36,8 @@ export interface GenerateProfileResponse {
 
 export interface MatchRun {
   id: string;
+  profile_source_type?: string;
+  profile_verification_status?: string;
 }
 
 export interface MatchResult {

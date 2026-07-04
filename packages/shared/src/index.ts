@@ -92,7 +92,7 @@ export const profileFieldSourceTypeSchema = z.enum([
 ]);
 
 export const companyLookupSearchSchema = z.object({
-  query_name: z.string().min(2)
+  query_name: z.string().trim().min(2)
 });
 
 export const registerSchema = z.object({
@@ -146,8 +146,8 @@ export interface CompanyLookupCandidate {
   business_address: string;
   registration_status: string;
   source_name: string;
-  source_type?: string;
-  confidence?: number;
+  source_type: ProfileFieldSourceType;
+  confidence: number;
 }
 
 export type RuleOperator =

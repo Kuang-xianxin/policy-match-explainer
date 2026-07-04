@@ -42,9 +42,16 @@ CREATE TABLE IF NOT EXISTS enterprise_profiles (
   company_name text NOT NULL,
   credit_code text NOT NULL,
   profile jsonb NOT NULL,
+  field_sources jsonb NOT NULL DEFAULT '[]'::jsonb,
+  source_type text NOT NULL DEFAULT 'manual',
+  verification_status text NOT NULL DEFAULT 'manual',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE enterprise_profiles ADD COLUMN IF NOT EXISTS field_sources jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE enterprise_profiles ADD COLUMN IF NOT EXISTS source_type text NOT NULL DEFAULT 'manual';
+ALTER TABLE enterprise_profiles ADD COLUMN IF NOT EXISTS verification_status text NOT NULL DEFAULT 'manual';
 
 CREATE TABLE IF NOT EXISTS policies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -62,6 +69,9 @@ CREATE TABLE IF NOT EXISTS match_runs (
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   enterprise_profile_id uuid NOT NULL REFERENCES enterprise_profiles(id) ON DELETE CASCADE,
   profile_snapshot jsonb NOT NULL,
+  profile_field_sources jsonb NOT NULL DEFAULT '[]'::jsonb,
+  profile_source_type text NOT NULL DEFAULT 'manual',
+  profile_verification_status text NOT NULL DEFAULT 'manual',
   baseline_status text NOT NULL DEFAULT 'completed',
   ai_review_status text NOT NULL DEFAULT 'completed',
   ai_model_name text,
@@ -70,6 +80,10 @@ CREATE TABLE IF NOT EXISTS match_runs (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE match_runs ADD COLUMN IF NOT EXISTS profile_field_sources jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE match_runs ADD COLUMN IF NOT EXISTS profile_source_type text NOT NULL DEFAULT 'manual';
+ALTER TABLE match_runs ADD COLUMN IF NOT EXISTS profile_verification_status text NOT NULL DEFAULT 'manual';
 
 CREATE TABLE IF NOT EXISTS match_results (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

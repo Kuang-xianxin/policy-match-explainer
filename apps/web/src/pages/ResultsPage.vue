@@ -8,6 +8,9 @@ const sortedResults = computed(() =>
 );
 
 const reviewMode = computed(() => sortedResults.value[0]?.ai_mode ?? appState.aiStatus?.mode ?? 'mock');
+const isInferredRun = computed(() =>
+  appState.matchRun?.profile_verification_status === 'inferred' || appState.matchRun?.profile_source_type === 'inferred'
+);
 const isLoading = ref(false);
 const isGeneratingReport = ref(false);
 const errorText = ref('');
@@ -52,6 +55,9 @@ async function doGenerateReport() {
     </div>
 
     <p v-if="errorText" class="error-text">{{ errorText }}</p>
+    <div v-if="isInferredRun" class="warning-panel">
+      本次匹配基于未验证 AI 画像草稿，最终等级已按试算处理。正式申报前请先核对企业名称、统一社会信用代码、经营地址和资质状态。
+    </div>
 
     <section v-if="isLoading" class="panel empty-panel">
       <RefreshCcw :size="24" />

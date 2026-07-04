@@ -9,6 +9,7 @@ import {
   type CompanyLookupCandidate,
   type EnterpriseProfile,
   type FieldSource,
+  type ProfileFieldSourceType,
   type Policy
 } from '@policy-match/shared';
 import { extractEnterpriseProfile, generateReport, planCompanyLookup, reviewPolicyMatch } from '@policy-match/ai';
@@ -57,6 +58,14 @@ function databaseErrorResponse(error: unknown): { code?: string; message: string
 const customerTypes = ['government', 'enterprise', 'individual', 'overseas', 'other'] as const;
 const businessModels = ['B2B', 'B2G', 'B2C', 'SaaS', 'platform', 'manufacturing', 'service', 'other'] as const;
 const projectStages = ['planning', 'researching', 'developing', 'launched', 'scaling'] as const;
+const fieldSourceTypes: ProfileFieldSourceType[] = [
+  'manual',
+  'official_open_data',
+  'official_public_page',
+  'commercial_api',
+  'local_seed',
+  'inferred'
+];
 
 function stringValue(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
@@ -71,6 +80,21 @@ function booleanValue(value: unknown): boolean {
   return value === true;
 }
 
+function simpleHash(value: string): string {
+  let hash = 0;
+  for (const char of value) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return hash.toString(36).toUpperCase().padStart(6, '0').slice(0, 8);
+}
+
+function normalizeDraftCompanyName(queryName: string): string {
+  const cleanName = queryName.trim().replace(/\s+/g, '');
+  if (/公司|企业|厂$/u.test(cleanName)) return cleanName;
+  if (cleanName.startsWith('深圳市')) return `${cleanName}科技有限公司`;
+  return `深圳市${cleanName}科技有限公司`;
+}
+
 function candidateConfidence(queryName: string, candidate: DemoCompanyPayload): number {
   const query = queryName.trim().toLowerCase();
   const target = `${candidate.company_name} ${candidate.credit_code} ${candidate.industry} ${candidate.business_scope}`.toLowerCase();
@@ -78,6 +102,33 @@ function candidateConfidence(queryName: string, candidate: DemoCompanyPayload): 
   if (candidate.company_name.toLowerCase().includes(query)) return 0.9;
   if (candidate.credit_code.toLowerCase() === query) return 0.95;
   return target.includes(query) ? 0.78 : 0.68;
+}
+
+function createInferredCompanyPayload(queryName: string): DemoCompanyPayload & { source_type: 'inferred'; query_name: string } {
+  const query = queryName.trim();
+  const companyName = normalizeDraftCompanyName(query);
+  const text = `${query} ${companyName}`.toLowerCase();
+  const isManufacturing = /装备|制造|机器人|自动化/u.test(text);
+  const industry = isManufacturing ? '智能制造装备' : '软件和信息技术服务业';
+  const businessScope = isManufacturing
+    ? `${companyName}相关的智能制造、自动化设备、数字化产线和技术服务，具体经营范围待用户确认。`
+    : `${companyName}相关的软件开发、人工智能、数据治理、企业数字化服务，具体经营范围待用户确认。`;
+
+  return {
+    query_name: query,
+    source_type: 'inferred',
+    company_name: companyName,
+    credit_code: `UNCONFIRMED-${simpleHash(companyName)}`,
+    business_address: '深圳市龙华区（系统默认范围，待用户确认）',
+    registration_status: '未验证',
+    registered_year: new Date().getFullYear(),
+    registered_capital: 0,
+    industry,
+    business_scope: businessScope,
+    is_high_tech_enterprise: false,
+    is_tech_sme: false,
+    has_specialized_new_sme: false
+  };
 }
 
 function inferProjectDirection(raw: Partial<DemoCompanyPayload>): EnterpriseProfile['project_direction'] {
@@ -156,7 +207,8 @@ function generatedProfileFromLookup(
   });
 }
 
-function baseFieldSources(raw: DemoCompanyPayload, sourceName: string): FieldSource[] {
+function baseFieldSources(raw: DemoCompanyPayload & { source_type?: string }, sourceName: string): FieldSource[] {
+  const isInferredDraft = raw.source_type === 'inferred';
   const fields: Array<keyof EnterpriseProfile> = [
     'company_name',
     'credit_code',
@@ -174,10 +226,74 @@ function baseFieldSources(raw: DemoCompanyPayload, sourceName: string): FieldSou
   return fields.map((fieldKey) => ({
     field_key: fieldKey,
     source_name: sourceName,
-    source_type: 'local_seed',
-    confidence: fieldKey in raw || fieldKey === 'city' || fieldKey === 'district' ? 0.88 : 0.7,
+    source_type: isInferredDraft ? 'inferred' : 'local_seed',
+    confidence: isInferredDraft ? 0.48 : fieldKey in raw || fieldKey === 'city' || fieldKey === 'district' ? 0.88 : 0.7,
     is_user_confirmed: false
   }));
+}
+
+function cleanFieldSources(sources: unknown, fallbackSourceName: string, forceInferred: boolean): FieldSource[] {
+  if (!Array.isArray(sources)) return [];
+  return sources
+    .map((source): FieldSource | null => {
+      if (!source || typeof source !== 'object') return null;
+      const item = source as Partial<FieldSource>;
+      const sourceType =
+        !forceInferred && item.source_type && fieldSourceTypes.includes(item.source_type)
+          ? item.source_type
+          : 'inferred';
+      const confidence = Number(item.confidence);
+      return {
+        field_key: stringValue(item.field_key, 'unknown'),
+        source_name: forceInferred ? fallbackSourceName : stringValue(item.source_name, fallbackSourceName),
+        source_type: sourceType,
+        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : forceInferred ? 0.48 : 0.5,
+        is_user_confirmed: item.is_user_confirmed === true
+      };
+    })
+    .filter((item): item is FieldSource => item !== null);
+}
+
+function dedupeFieldSources(sources: FieldSource[]): FieldSource[] {
+  const seen = new Set<string>();
+  const deduped: FieldSource[] = [];
+  for (const source of sources) {
+    const key = `${source.field_key}:${source.source_type}:${source.source_name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(source);
+  }
+  return deduped;
+}
+
+function sourceTypeFromFieldSources(fieldSources: FieldSource[]): ProfileFieldSourceType {
+  if (fieldSources.some((source) => source.source_type === 'inferred')) return 'inferred';
+  return fieldSources[0]?.source_type ?? 'manual';
+}
+
+function verificationStatusFromSourceType(sourceType: ProfileFieldSourceType): string {
+  if (sourceType === 'inferred') return 'inferred';
+  if (sourceType === 'manual') return 'manual';
+  return 'verified';
+}
+
+function parseProfileSavePayload(body: unknown): {
+  profile: EnterpriseProfile;
+  fieldSources: FieldSource[];
+  sourceType: ProfileFieldSourceType;
+  verificationStatus: string;
+} {
+  const candidate = body && typeof body === 'object' && 'profile' in body ? (body as { profile?: unknown }) : null;
+  const profile = enterpriseProfileSchema.parse(candidate?.profile ?? body);
+  const rawFieldSources = candidate ? (body as { field_sources?: unknown }).field_sources : [];
+  const fieldSources = cleanFieldSources(rawFieldSources, 'manual_profile_input', false);
+  const sourceType = sourceTypeFromFieldSources(fieldSources);
+  return {
+    profile,
+    fieldSources,
+    sourceType,
+    verificationStatus: verificationStatusFromSourceType(sourceType)
+  };
 }
 
 export function createApp() {
@@ -248,11 +364,13 @@ export function createApp() {
   app.post('/api/company-lookup/search', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
     const body = companyLookupSearchSchema.parse(req.body);
     const plan = await planCompanyLookup(body.query_name, aiConfig());
-    const searched = searchDemoCompanies([body.query_name, ...plan.search_keywords]);
+    const searched = searchDemoCompanies([body.query_name, ...plan.search_keywords])
+      .map((company) => ({ company, confidence: candidateConfidence(body.query_name, company) }))
+      .filter((item) => item.confidence >= 0.7)
+      .sort((a, b) => b.confidence - a.confidence);
     const candidates: CompanyLookupCandidate[] = [];
 
-    for (const company of searched) {
-      const confidence = candidateConfidence(body.query_name, company);
+    for (const { company, confidence } of searched) {
       const inserted = await pool.query(
         `
         INSERT INTO company_lookup_records (
@@ -286,6 +404,41 @@ export function createApp() {
       });
     }
 
+    if (candidates.length === 0) {
+      const inferred = createInferredCompanyPayload(body.query_name);
+      const inserted = await pool.query(
+        `
+        INSERT INTO company_lookup_records (
+          user_id, query_name, selected_company_name, selected_credit_code,
+          source_name, source_type, raw_payload, confidence
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+        RETURNING id
+        `,
+        [
+          req.user.id,
+          body.query_name,
+          inferred.company_name,
+          inferred.credit_code,
+          'ai_inferred_company_draft',
+          'inferred',
+          JSON.stringify(inferred),
+          0.48
+        ]
+      );
+
+      candidates.push({
+        lookup_id: inserted.rows[0].id,
+        company_name: inferred.company_name,
+        credit_code: inferred.credit_code,
+        business_address: inferred.business_address,
+        registration_status: inferred.registration_status,
+        source_name: 'AI 画像草稿（待用户确认）',
+        source_type: 'inferred',
+        confidence: 0.48
+      });
+    }
+
     res.json({ lookup_plan: plan, candidates });
   }));
 
@@ -303,10 +456,11 @@ export function createApp() {
     const rawPayload = record.raw_payload as Record<string, unknown>;
     const extracted = await extractEnterpriseProfile({ rawPayload, sourceName: record.source_name }, aiConfig());
     const enterpriseProfile = generatedProfileFromLookup(rawPayload, extracted.mapped_profile);
-    const fieldSources = [
+    const isInferredLookup = record.source_type === 'inferred';
+    const fieldSources = dedupeFieldSources([
       ...baseFieldSources(rawPayload as unknown as DemoCompanyPayload, record.source_name),
-      ...extracted.field_sources
-    ];
+      ...cleanFieldSources(extracted.field_sources, record.source_name, isInferredLookup)
+    ]);
     const missingFields = Array.from(
       new Set([
         ...extracted.missing_fields,
@@ -355,14 +509,22 @@ export function createApp() {
   }));
 
   app.post('/api/enterprise-profiles', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
-    const profile = enterpriseProfileSchema.parse(req.body);
+    const { profile, fieldSources, sourceType, verificationStatus } = parseProfileSavePayload(req.body);
     const created = await pool.query(
       `
-      INSERT INTO enterprise_profiles (user_id, company_name, credit_code, profile)
-      VALUES ($1, $2, $3, $4::jsonb)
+      INSERT INTO enterprise_profiles (user_id, company_name, credit_code, profile, field_sources, source_type, verification_status)
+      VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
       RETURNING *
       `,
-      [req.user.id, profile.company_name, profile.credit_code, JSON.stringify(profile)]
+      [
+        req.user.id,
+        profile.company_name,
+        profile.credit_code,
+        JSON.stringify(profile),
+        JSON.stringify(fieldSources),
+        sourceType,
+        verificationStatus
+      ]
     );
     res.status(201).json({ enterprise_profile: created.rows[0] });
   }));
@@ -400,13 +562,32 @@ export function createApp() {
     }
 
     const profile = enterpriseProfileSchema.parse(profileRecord.profile);
+    const profileFieldSources = cleanFieldSources(profileRecord.field_sources, 'saved_profile', false);
+    const profileSourceType = stringValue(profileRecord.source_type, sourceTypeFromFieldSources(profileFieldSources));
+    const profileVerificationStatus = stringValue(
+      profileRecord.verification_status,
+      verificationStatusFromSourceType(profileSourceType as ProfileFieldSourceType)
+    );
+    const profileIsInferred = profileSourceType === 'inferred' || profileVerificationStatus === 'inferred';
     const runResult = await pool.query(
       `
-      INSERT INTO match_runs (user_id, enterprise_profile_id, profile_snapshot, ai_model_name, ai_prompt_snapshot)
-      VALUES ($1, $2, $3::jsonb, $4, $5)
+      INSERT INTO match_runs (
+        user_id, enterprise_profile_id, profile_snapshot, profile_field_sources,
+        profile_source_type, profile_verification_status, ai_model_name, ai_prompt_snapshot
+      )
+      VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8)
       RETURNING *
       `,
-      [req.user.id, profileRecord.id, JSON.stringify(profile), env.deepseekApiKey ? env.deepseekModel : 'mock', 'review_policy_match_v1']
+      [
+        req.user.id,
+        profileRecord.id,
+        JSON.stringify(profile),
+        JSON.stringify(profileFieldSources),
+        profileSourceType,
+        profileVerificationStatus,
+        env.deepseekApiKey ? env.deepseekModel : 'mock',
+        'review_policy_match_v1'
+      ]
     );
     const run = runResult.rows[0];
     const policiesResult = await pool.query('SELECT id, title, category, source_url, status, policy_text, rules FROM policies ORDER BY title');
@@ -419,7 +600,23 @@ export function createApp() {
       const finalScore = hasHardFailure
         ? baseline.baseline_score
         : clampScore(baseline.baseline_score + aiReview.ai_adjustment);
-      const finalLevel = levelFromFinalScore(finalScore, baseline.baseline_level, hasHardFailure);
+      const finalLevel = profileIsInferred && !hasHardFailure
+        ? 'need_more_info'
+        : levelFromFinalScore(finalScore, baseline.baseline_level, hasHardFailure);
+      const missingConditions = profileIsInferred
+        ? [
+            ...baseline.missing_conditions,
+            {
+              field_key: 'company_identity_verification',
+              expected_value: 'verified_enterprise_record',
+              evidence_text: '当前画像来自未验证 AI 草稿，正式申报前必须核对企业主体、信用代码和经营地址。',
+              required: true
+            }
+          ]
+        : baseline.missing_conditions;
+      const riskNotes = profileIsInferred
+        ? [...baseline.risk_notes, '画像来源为未验证 AI 草稿，本次结果仅可作为试算参考。']
+        : baseline.risk_notes;
       const inserted = await pool.query(
         `
         INSERT INTO match_results (
@@ -438,8 +635,8 @@ export function createApp() {
           baseline.baseline_score,
           baseline.baseline_level,
           JSON.stringify(baseline.matched_conditions),
-          JSON.stringify(baseline.missing_conditions),
-          JSON.stringify(baseline.risk_notes),
+          JSON.stringify(missingConditions),
+          JSON.stringify(riskNotes),
           JSON.stringify(baseline.hard_failures),
           aiReview.ai_review_summary,
           aiReview.ai_explanation,

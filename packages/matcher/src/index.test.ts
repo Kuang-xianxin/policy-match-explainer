@@ -3,8 +3,8 @@ import type { EnterpriseProfile, Policy } from '@policy-match/shared';
 import { evaluatePolicy, levelFromFinalScore } from './index.js';
 
 const baseProfile: EnterpriseProfile = {
-  company_name: '深圳市龙华智造科技有限公司',
-  credit_code: '91440300MA5DEMO001',
+  company_name: '深圳市龙华星河数策测试有限公司',
+  credit_code: 'TEST-LH-MATCH-001',
   city: '深圳市',
   district: '龙华区',
   registered_year: 2020,

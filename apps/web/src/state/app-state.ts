@@ -138,12 +138,31 @@ export async function generateProfileFromCandidate(lookupId: string): Promise<vo
   appState.statusText = `已生成待确认画像：${data.enterprise_profile.company_name}`;
 }
 
+export async function smartGenerateAndMatch(queryName: string): Promise<void> {
+  await searchCompany(queryName);
+  if (appState.candidates.length !== 1) {
+    throw new Error('找到多个候选企业，请先选择正确企业后再生成画像。');
+  }
+  const [candidate] = appState.candidates;
+  if (!candidate) throw new Error('未找到可生成画像的候选企业。');
+  await generateProfileFromCandidate(candidate.lookup_id);
+  const saved = await saveManualProfile();
+  if (!saved) throw new Error('画像保存失败，无法发起匹配。');
+  await runMatch(saved.id);
+}
+
 export async function saveManualProfile(): Promise<EnterpriseProfileRecord | null> {
   if (!appState.draftProfile) return null;
+  const payload = appState.generatedProfileMeta
+    ? {
+        profile: appState.draftProfile,
+        field_sources: appState.generatedProfileMeta.field_sources
+      }
+    : appState.draftProfile;
   const data = await api<{ enterprise_profile: EnterpriseProfileRecord }>(
     '/api/enterprise-profiles',
     appState.token,
-    { method: 'POST', body: JSON.stringify(appState.draftProfile) }
+    { method: 'POST', body: JSON.stringify(payload) }
   );
   appState.statusText = `画像已保存：${data.enterprise_profile.company_name}`;
   await loadProfiles();

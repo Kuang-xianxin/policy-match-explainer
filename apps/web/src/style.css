@@ -196,6 +196,12 @@ label {
   gap: 10px;
 }
 
+.search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .search-row {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) auto;
@@ -387,6 +393,19 @@ label {
 
 .error-text {
   color: #b42318;
+}
+
+.warning-text {
+  color: #9a3412;
+}
+
+.warning-panel {
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  margin-top: 12px;
+  padding: 10px 12px;
 }
 
 pre {

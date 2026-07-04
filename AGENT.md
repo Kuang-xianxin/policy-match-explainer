@@ -13,6 +13,7 @@
 - The current MVP enterprise profile input uses AI-assisted lightweight profile generation. The primary flow is: user enters an incomplete company name, DeepSeek plans normalized search keywords, the backend searches a local/authorized Longhua enterprise index, the user selects one candidate, and the system generates a draft enterprise profile for user confirmation.
 - Do not use paid enterprise data APIs unless the user explicitly approves that cost and provider. The current MVP uses a local Longhua demo enterprise index that can later be replaced by authorized official/open data providers.
 - Multiple company candidates must be shown to the user for selection. Do not silently choose an ambiguous candidate.
+- If no local/authorized enterprise index candidate is found, the system may create an explicitly marked `inferred` profile draft so the user can continue matching. This draft must be labeled as unverified, use synthetic `UNCONFIRMED-*` credit codes, and require user confirmation before any formal application use.
 - DeepSeek may infer low-risk business fields from a selected raw company payload, such as business summary, products, customer type, business model, and project direction. It must not be used as the source of enterprise registry facts.
 - DeepSeek or any LLM prompt must not fabricate revenue, profit, tax paid, R&D expense, R&D employee count, social security status, project budget, or other internal operating data. Those fields must be user-confirmed through range selectors or explicit manual editing, with `unknown` supported.
 - The matcher must keep deterministic rule scoring as the baseline. DeepSeek remains available for policy match review and report writing after the user saves a confirmed profile.
@@ -29,6 +30,8 @@
 
 The project must keep a JSON Lines log file named `rounds.jsonl`.
 
+This requirement is mandatory for every future programming-agent conversation in this project. At the start of each round, check the latest `round_id`; before finishing, append the new round record. If a round is read-only or makes no project modification, set `modify_diff` to an empty string and `commit_hash` to `NO_COMMIT`. If an earlier round was missed, add a truthful retrospective record and mark the reason in `prompt_content` or `modify_diff` instead of silently leaving the gap.
+
 For every conversation round with a programming agent, append exactly one JSON object line to `rounds.jsonl`. `round_id` starts from `1`, increases by `1` each round, and must be unique.
 
 Each JSON object must include these fields:
@@ -43,7 +46,7 @@ Each JSON object must include these fields:
 
 Field values must be filled truthfully.
 
-Because a Git commit hash is only known after a commit is created, and because recording the `rounds.jsonl` line inside its own `modify_diff` would create a recursive self-reference, use this convention:
+Because a Git commit hash is only known after a commit is created, and because recording the `rounds.jsonl` line inside its own `modify_diff` would create a recursive self-reference, use this convention for rounds with project modifications:
 
 1. Finish the actual project changes for the round.
 2. Commit those project changes and get the commit hash.

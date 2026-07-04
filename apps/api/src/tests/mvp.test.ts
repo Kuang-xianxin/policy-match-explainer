@@ -9,8 +9,8 @@ import { seedPolicies } from '../db/seed.js';
 const app = createApp();
 
 const manualProfile: EnterpriseProfile = {
-  company_name: '深圳市龙华智造科技有限公司',
-  credit_code: '91440300MA5DEMO001',
+  company_name: '深圳市龙华星河数策测试有限公司',
+  credit_code: 'TEST-LH-SOFT-001',
   city: '深圳市',
   district: '龙华区',
   registered_year: 2020,
@@ -96,7 +96,7 @@ describe('policy match MVP flow', () => {
     await closePool();
   });
 
-  it('runs AI-assisted company lookup, profile confirmation, matching, and report on PostgreSQL', async () => {
+  it('generates, saves, matches, and reports for a non-registry full company name', async () => {
     const token = await register('demo@example.com');
 
     const health = await request(app).get('/health');
@@ -109,26 +109,39 @@ describe('policy match MVP flow', () => {
     const lookup = await request(app)
       .post('/api/company-lookup/search')
       .set('Authorization', `Bearer ${token}`)
-      .send({ query_name: '龙华智造' });
+      .send({ query_name: '深圳市龙华星河数策测试有限公司' });
     expect(lookup.status).toBe(200);
     expect(lookup.body.lookup_plan.search_keywords.length).toBeGreaterThan(0);
-    expect(lookup.body.candidates.length).toBeGreaterThan(0);
+    expect(lookup.body.candidates).toHaveLength(1);
+    expect(lookup.body.candidates[0].source_type).toBe('inferred');
+    expect(lookup.body.candidates[0].credit_code).toMatch(/^UNCONFIRMED-/);
+    expect(lookup.body.candidates[0].company_name).toBe('深圳市龙华星河数策测试有限公司');
 
     const generated = await request(app)
       .post(`/api/company-lookup/${lookup.body.candidates[0].lookup_id}/generate-profile`)
       .set('Authorization', `Bearer ${token}`)
       .send();
     expect(generated.status).toBe(200);
-    expect(generated.body.enterprise_profile.company_name).toContain('龙华智造');
+    expect(generated.body.enterprise_profile.company_name).toBe('深圳市龙华星河数策测试有限公司');
+    expect(generated.body.enterprise_profile.business_address).toContain('待用户确认');
     expect(generated.body.enterprise_profile.revenue_range).toBe('unknown');
+    expect(generated.body.field_sources.length).toBeGreaterThan(0);
+    expect(generated.body.field_sources.every((item: { source_type: string }) => item.source_type === 'inferred')).toBe(true);
 
-    const confirmedProfile = completeGeneratedProfile(generated.body.enterprise_profile);
+    const confirmedProfile = completeGeneratedProfile(generated.body.enterprise_profile, {
+      project_direction: 'AI',
+      business_model: 'SaaS',
+      is_high_tech_enterprise: true,
+      is_tech_sme: true
+    });
 
     const created = await request(app)
       .post('/api/enterprise-profiles')
       .set('Authorization', `Bearer ${token}`)
-      .send(confirmedProfile);
+      .send({ profile: confirmedProfile, field_sources: generated.body.field_sources });
     expect(created.status).toBe(201);
+    expect(created.body.enterprise_profile.verification_status).toBe('inferred');
+    expect(created.body.enterprise_profile.source_type).toBe('inferred');
     const profileId = created.body.enterprise_profile.id as string;
 
     const matchRun = await request(app)
@@ -136,8 +149,10 @@ describe('policy match MVP flow', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ enterprise_profile_id: profileId });
     expect(matchRun.status).toBe(201);
+    expect(matchRun.body.match_run.profile_verification_status).toBe('inferred');
     expect(matchRun.body.results.length).toBe(3);
     expect(matchRun.body.results[0].final_score).toBeGreaterThanOrEqual(0);
+    expect(matchRun.body.results.some((item: { final_level: string }) => item.final_level === 'need_more_info')).toBe(true);
 
     const runId = matchRun.body.match_run.id as string;
     const report = await request(app)
@@ -148,21 +163,41 @@ describe('policy match MVP flow', () => {
     expect(report.body.report.content_text).toContain('综合结论');
   });
 
-  it('handles a second demo company and recommends the specialized-new policy', async () => {
-    const token = await register('equipment@example.com');
+  it('supports a non-registry abbreviation by creating a completed inferred draft', async () => {
+    const token = await register('abbr@example.com');
     const lookup = await request(app)
       .post('/api/company-lookup/search')
       .set('Authorization', `Bearer ${token}`)
-      .send({ query_name: '专精特新智能装备' });
+      .send({ query_name: '星河智算' });
     expect(lookup.status).toBe(200);
-    expect(lookup.body.candidates[0].company_name).toContain('专精特新');
+    expect(lookup.body.candidates).toHaveLength(1);
+    expect(lookup.body.candidates[0].source_type).toBe('inferred');
+    expect(lookup.body.candidates[0].company_name).toBe('深圳市星河智算科技有限公司');
 
     const generated = await request(app)
       .post(`/api/company-lookup/${lookup.body.candidates[0].lookup_id}/generate-profile`)
       .set('Authorization', `Bearer ${token}`)
       .send();
     expect(generated.status).toBe(200);
-    expect(generated.body.enterprise_profile.has_specialized_new_sme).toBe(true);
+    expect(generated.body.enterprise_profile.company_name).toBe('深圳市星河智算科技有限公司');
+    expect(generated.body.enterprise_profile.main_business).toContain('待用户确认');
+  });
+
+  it('matches a non-registry specialized equipment profile without relying on demo companies', async () => {
+    const token = await register('equipment@example.com');
+    const lookup = await request(app)
+      .post('/api/company-lookup/search')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ query_name: '深圳市观澜锐拓装备测试有限公司' });
+    expect(lookup.status).toBe(200);
+    expect(lookup.body.candidates[0].source_type).toBe('inferred');
+
+    const generated = await request(app)
+      .post(`/api/company-lookup/${lookup.body.candidates[0].lookup_id}/generate-profile`)
+      .set('Authorization', `Bearer ${token}`)
+      .send();
+    expect(generated.status).toBe(200);
+    expect(generated.body.enterprise_profile.industry).toBe('智能制造装备');
     expect(generated.body.enterprise_profile.project_budget_range).toBe('unknown');
 
     const confirmedProfile = completeGeneratedProfile(generated.body.enterprise_profile, {
@@ -173,7 +208,7 @@ describe('policy match MVP flow', () => {
     const created = await request(app)
       .post('/api/enterprise-profiles')
       .set('Authorization', `Bearer ${token}`)
-      .send(confirmedProfile);
+      .send({ profile: confirmedProfile, field_sources: generated.body.field_sources });
     expect(created.status).toBe(201);
 
     const matchRun = await request(app)
@@ -184,11 +219,11 @@ describe('policy match MVP flow', () => {
     const specializedResult = matchRun.body.results.find((item: { policy: { title: string } }) =>
       item.policy.title.includes('专精特新')
     );
-    expect(specializedResult.final_level).toBe('recommended');
+    expect(specializedResult.final_level).toBe('need_more_info');
     expect(specializedResult.baseline_score).toBe(100);
   });
 
-  it('returns an empty candidate list for unknown company names', async () => {
+  it('returns an explicit inferred draft instead of pretending unknown names are registry hits', async () => {
     const token = await register('unknown-company@example.com');
     const lookup = await request(app)
       .post('/api/company-lookup/search')
@@ -196,7 +231,9 @@ describe('policy match MVP flow', () => {
       .send({ query_name: '不存在的龙华企业样本' });
 
     expect(lookup.status).toBe(200);
-    expect(lookup.body.candidates).toEqual([]);
+    expect(lookup.body.candidates).toHaveLength(1);
+    expect(lookup.body.candidates[0].source_type).toBe('inferred');
+    expect(lookup.body.candidates[0].source_name).toContain('待用户确认');
   });
 
   it('requires authentication on protected routes', async () => {
@@ -205,6 +242,18 @@ describe('policy match MVP flow', () => {
 
     expect(profiles.status).toBe(401);
     expect(lookup.status).toBe(401);
+  });
+
+  it('trims company lookup query before creating inferred drafts', async () => {
+    const token = await register('trim@example.com');
+    const lookup = await request(app)
+      .post('/api/company-lookup/search')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ query_name: '  星河智算  ' });
+
+    expect(lookup.status).toBe(200);
+    expect(lookup.body.lookup_plan.normalized_query).toBe('星河智算');
+    expect(lookup.body.candidates[0].company_name).toBe('深圳市星河智算科技有限公司');
   });
 
   it('prevents users from generating a profile from another user lookup record', async () => {

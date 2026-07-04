@@ -15,6 +15,7 @@ import {
   saveManualProfile,
   searchCompany,
   setArrayField,
+  smartGenerateAndMatch,
   startManualProfile
 } from '../state/app-state';
 
@@ -25,7 +26,11 @@ const isSearching = ref(false);
 const isGenerating = ref(false);
 const isSaving = ref(false);
 const isMatching = ref(false);
+const isSmartMatching = ref(false);
 const profile = computed(() => appState.draftProfile);
+const generatedProfileIsInferred = computed(() =>
+  appState.generatedProfileMeta?.field_sources.some((item) => item.source_type === 'inferred') ?? false
+);
 
 const amountRangeOptions: Array<{ value: AmountRange; label: string }> = [
   { value: 'unknown', label: '未知' },
@@ -81,6 +86,24 @@ async function doSearch() {
     errorText.value = error instanceof Error ? error.message : '企业候选查询失败';
   } finally {
     isSearching.value = false;
+  }
+}
+
+async function doSmartMatch() {
+  errorText.value = '';
+  if (queryName.value.trim().length < 2) {
+    errorText.value = '请输入至少 2 个字的企业名称或简称';
+    return;
+  }
+  if (isSmartMatching.value) return;
+  isSmartMatching.value = true;
+  try {
+    await smartGenerateAndMatch(queryName.value);
+    await router.push('/results');
+  } catch (error) {
+    errorText.value = error instanceof Error ? error.message : '智能生成并匹配失败';
+  } finally {
+    isSmartMatching.value = false;
   }
 }
 
@@ -145,7 +168,7 @@ async function doMatch(profileId: string) {
     <div class="page-heading">
       <div>
         <h1>企业画像生成</h1>
-        <p>先输入企业名称或简称，由 AI 规划查询词并从本地龙华企业索引中找候选；选择企业后生成待确认画像，再补少量关键区间。</p>
+        <p>先输入企业名称或简称，由 AI 规划查询词并从本地龙华企业索引中找候选；无命中时生成未验证画像草稿，可继续匹配但需人工确认。</p>
       </div>
       <button class="outline-button" @click="startManualProfile"><PlusCircle :size="16" />空白手动编辑</button>
     </div>
@@ -154,7 +177,7 @@ async function doMatch(profileId: string) {
       <div class="section-title">
         <div>
           <h2>1. 搜索候选企业</h2>
-          <p class="hint">当前不接入付费企查查/天眼查 API，MVP 使用本地龙华企业示例索引；后续可替换为授权公开数据源。</p>
+          <p class="hint">当前不接入付费企查查/天眼查 API，MVP 使用本地龙华企业示例索引；未命中时只生成待确认草稿，不代表工商验证结果。</p>
         </div>
       </div>
 
@@ -162,7 +185,14 @@ async function doMatch(profileId: string) {
         <label>企业名称或简称
           <input v-model="queryName" placeholder="例如：龙华智造、专精特新装备" @keyup.enter="doSearch" />
         </label>
-        <button :disabled="isSearching" @click="doSearch"><Search :size="16" />{{ isSearching ? '查询中' : '查询候选' }}</button>
+        <div class="search-actions">
+          <button :disabled="isSearching || isSmartMatching" @click="doSearch">
+            <Search :size="16" />{{ isSearching ? '查询中' : '查询候选' }}
+          </button>
+          <button :disabled="isSearching || isSmartMatching" @click="doSmartMatch">
+            <PlayCircle :size="16" />{{ isSmartMatching ? '匹配中' : '智能生成并匹配' }}
+          </button>
+        </div>
       </div>
 
       <p v-if="errorText" class="error-text">{{ errorText }}</p>
@@ -186,12 +216,13 @@ async function doMatch(profileId: string) {
             <strong>{{ item.company_name }}</strong>
             <small>{{ item.credit_code }} · {{ item.business_address }}</small>
             <small>{{ item.source_name }} · 置信度 {{ Math.round((item.confidence ?? 0) * 100) }}%</small>
+            <small v-if="item.source_type === 'inferred'" class="warning-text">未验证草稿，正式申报前必须核对企业主体信息</small>
           </span>
           <WandSparkles :size="18" />
         </button>
       </div>
 
-      <p v-else-if="appState.lookupPlan" class="hint">没有找到候选企业。可以换一个简称，或点击“空白手动编辑”。</p>
+      <p v-else-if="appState.lookupPlan" class="hint">没有找到候选企业。系统会提供 AI 草稿候选用于继续生成待确认画像。</p>
     </section>
 
     <section v-if="profile" class="panel">
@@ -214,6 +245,9 @@ async function doMatch(profileId: string) {
         <span>画像生成：{{ appState.generatedProfileMeta.ai_mode === 'deepseek' ? 'DeepSeek' : 'mock' }}</span>
         <span>置信度：{{ Math.round(appState.generatedProfileMeta.ai_confidence * 100) }}%</span>
         <span>待补字段：{{ appState.generatedProfileMeta.missing_fields.join('、') }}</span>
+      </div>
+      <div v-if="generatedProfileIsInferred" class="warning-panel">
+        当前画像来自未验证 AI 草稿。企业名称、统一社会信用代码、经营地址、成立年份和资质状态都需要人工确认后才能用于正式申报。
       </div>
 
       <div class="profile-summary">
@@ -406,7 +440,11 @@ async function doMatch(profileId: string) {
 
       <div class="profile-list">
         <button v-for="item in appState.profiles" :key="item.id" :disabled="isMatching" @click="doMatch(item.id)">
-          <span><strong>{{ item.company_name }}</strong><small>{{ item.credit_code }}</small></span>
+          <span>
+            <strong>{{ item.company_name }}</strong>
+            <small>{{ item.credit_code }}</small>
+            <small v-if="item.verification_status === 'inferred'" class="warning-text">未验证草稿</small>
+          </span>
           <PlayCircle :size="18" />
         </button>
       </div>
