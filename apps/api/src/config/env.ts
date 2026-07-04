@@ -57,6 +57,7 @@ export function readEnvValue(names: string[]): EnvLookupResult {
 const isTestRuntime = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
 const deepseekApiKey = isTestRuntime ? {} : readEnvValue(['DEEPSEEK_API_KET', 'DEEPSEEK_API_KEY']);
 const doubaoApiKey = isTestRuntime ? {} : readEnvValue(['DOUBAO_API_KEY', 'ARK_API_KEY']);
+const doubaoDirectFallback = (process.env.DOUBAO_DIRECT_FALLBACK ?? 'true').toLowerCase() !== 'false';
 
 export const env = {
   databaseUrl: process.env.DATABASE_URL ?? 'postgres://policy_user:policy_password@localhost:15432/policy_match',
@@ -71,5 +72,8 @@ export const env = {
   doubaoApiKeySource: doubaoApiKey.source,
   doubaoModel: process.env.DOUBAO_MODEL ?? 'doubao-seed-1-6-250615',
   doubaoBaseUrl: process.env.DOUBAO_BASE_URL ?? 'https://ark.cn-beijing.volces.com/api/v3/responses',
-  doubaoTimeoutMs: Number(process.env.DOUBAO_TIMEOUT_MS ?? 45000)
+  doubaoTimeoutMs: Number(process.env.DOUBAO_TIMEOUT_MS ?? 45000),
+  doubaoDirectFallback,
+  doubaoResolveIp: process.env.DOUBAO_RESOLVE_IP?.trim() || undefined,
+  doubaoLocalAddress: process.env.DOUBAO_LOCAL_ADDRESS?.trim() || undefined
 };

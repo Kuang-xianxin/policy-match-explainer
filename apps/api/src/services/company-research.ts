@@ -10,12 +10,17 @@ import type {
   ProjectStage
 } from '@policy-match/shared';
 import { enterpriseProfileSchema } from '@policy-match/shared';
+import https from 'node:https';
+import os, { type NetworkInterfaceInfo } from 'node:os';
 
 export interface DoubaoResearchConfig {
   apiKey?: string;
   baseUrl: string;
   model: string;
   timeoutMs?: number;
+  directFallback?: boolean;
+  directResolvedIp?: string;
+  directLocalAddress?: string;
 }
 
 export interface ResearchEvidence {
@@ -120,6 +125,149 @@ function simpleHash(value: string): string {
     hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   }
   return hash.toString(36).toUpperCase().padStart(6, '0').slice(0, 8);
+}
+
+function isVirtualInterfaceName(name: string): boolean {
+  return /meta|loopback|vethernet|hyper-v|wsl|docker|vmware|virtualbox|zerotier|tailscale/i.test(name);
+}
+
+function isUsableDirectIpv4(address: NetworkInterfaceInfo): boolean {
+  return (
+    address.family === 'IPv4' &&
+    !address.internal &&
+    !address.address.startsWith('198.18.') &&
+    !address.address.startsWith('169.254.')
+  );
+}
+
+export function selectDirectLocalAddress(
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = os.networkInterfaces()
+): string | undefined {
+  for (const [name, addresses] of Object.entries(interfaces)) {
+    if (isVirtualInterfaceName(name) || !addresses) continue;
+    const address = addresses.find(isUsableDirectIpv4);
+    if (address) return address.address;
+  }
+  return undefined;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function shouldUseDirectArkFallback(error: unknown, baseUrl: string): boolean {
+  let host = '';
+  try {
+    host = new URL(baseUrl).hostname;
+  } catch {
+    return false;
+  }
+  if (!host.endsWith('.volces.com')) return false;
+  return /ECONNRESET|fetch failed|TLS|secure TLS|handshake|socket disconnected/i.test(errorText(error));
+}
+
+async function resolveHostWithDoh(hostname: string): Promise<string | undefined> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(hostname)}&type=A`, {
+      signal: controller.signal
+    });
+    if (!response.ok) return undefined;
+    const payload = (await response.json()) as { Answer?: Array<{ data?: unknown }> };
+    return payload.Answer?.map((item) => stringValue(item.data))
+      .find((value) => /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(value));
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchDoubaoJson(config: DoubaoResearchConfig, requestBody: Record<string, unknown>): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 45_000);
+  try {
+    const response = await fetch(config.baseUrl, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Doubao request failed: ${response.status} ${await response.text()}`);
+    }
+
+    return response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function directHttpsDoubaoJson(config: DoubaoResearchConfig, requestBody: Record<string, unknown>): Promise<unknown> {
+  const url = new URL(config.baseUrl);
+  const body = JSON.stringify(requestBody);
+  const resolvedIp = config.directResolvedIp || (await resolveHostWithDoh(url.hostname));
+  const localAddress = config.directLocalAddress || selectDirectLocalAddress();
+
+  return new Promise((resolve, reject) => {
+    const requestOptions: https.RequestOptions = {
+      hostname: url.hostname,
+      port: url.port ? Number(url.port) : 443,
+      path: `${url.pathname}${url.search}`,
+      method: 'POST',
+      servername: url.hostname,
+      localAddress,
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      },
+      timeout: config.timeoutMs ?? 45_000
+    };
+
+    if (resolvedIp) {
+      requestOptions.lookup = ((_hostname: string, _options: unknown, callback: unknown) => {
+        (callback as (error: NodeJS.ErrnoException | null, address: string, family: number) => void)(null, resolvedIp, 4);
+      }) as https.RequestOptions['lookup'];
+    }
+
+    const request = https.request(requestOptions, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(`Doubao direct fallback failed: ${response.statusCode ?? 'NO_STATUS'} ${text}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(text) as unknown);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    request.on('error', reject);
+    request.on('timeout', () => {
+      request.destroy(new Error('Doubao direct fallback timed out.'));
+    });
+    request.end(body);
+  });
+}
+
+async function requestDoubaoJson(config: DoubaoResearchConfig, requestBody: Record<string, unknown>): Promise<unknown> {
+  try {
+    return await fetchDoubaoJson(config, requestBody);
+  } catch (error) {
+    if (config.directFallback !== false && shouldUseDirectArkFallback(error, config.baseUrl)) {
+      return directHttpsDoubaoJson(config, requestBody);
+    }
+    throw error;
+  }
 }
 
 function creditCode(value: unknown, companyName: string): string {
@@ -293,8 +441,6 @@ export async function researchCompaniesWithDoubao(
 ): Promise<CompanyResearchPayload[]> {
   if (!config.apiKey?.trim()) return [];
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 45_000);
   const instructions = [
     '你是深圳市龙华区企业公开资料研究员。',
     '必须使用联网搜索证据回答，只输出 JSON，不要输出解释文字。',
@@ -308,27 +454,13 @@ export async function researchCompaniesWithDoubao(
   ].join('\n');
 
   try {
-    const response = await fetch(config.baseUrl, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: config.model,
-        instructions,
-        input: JSON.stringify({ query_name: queryName, search_keywords: keywords }),
-        tools: [{ type: 'web_search', max_keyword: 3, limit: 10 }],
-        temperature: 0.1
-      })
-    }).finally(() => clearTimeout(timeout));
-
-    if (!response.ok) {
-      throw new Error(`Doubao request failed: ${response.status} ${await response.text()}`);
-    }
-
-    const json = await response.json();
+    const json = await requestDoubaoJson(config, {
+      model: config.model,
+      instructions,
+      input: JSON.stringify({ query_name: queryName, search_keywords: keywords }),
+      tools: [{ type: 'web_search', max_keyword: 3, limit: 10 }],
+      temperature: 0.1
+    });
     const text = extractResponseText(json);
     const parsed = parseJsonObject(text) as { candidates?: unknown };
     const candidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];

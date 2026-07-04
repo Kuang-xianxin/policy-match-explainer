@@ -4,6 +4,8 @@ import {
   missingFieldsForProfile,
   researchCompaniesWithDoubao,
   researchFieldSources,
+  selectDirectLocalAddress,
+  shouldUseDirectArkFallback,
   type CompanyResearchPayload
 } from '../services/company-research.js';
 
@@ -94,6 +96,50 @@ describe('company research provider', () => {
     expect(candidates[0].registered_year).toBe(2003);
     expect(candidates[0].source_type).toBe('official_public_page');
     expect(candidates[0].evidence.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('selects a physical IPv4 address for Ark direct fallback instead of TUN or virtual adapters', () => {
+    const address = selectDirectLocalAddress({
+      Meta: [
+        {
+          address: '198.18.0.1',
+          netmask: '255.255.255.252',
+          family: 'IPv4',
+          mac: '00:00:00:00:00:00',
+          internal: false,
+          cidr: '198.18.0.1/30'
+        }
+      ],
+      WLAN: [
+        {
+          address: '192.168.100.6',
+          netmask: '255.255.255.0',
+          family: 'IPv4',
+          mac: '74:3a:f4:89:cf:fb',
+          internal: false,
+          cidr: '192.168.100.6/24'
+        }
+      ],
+      'vEthernet (WSL (Hyper-V firewall))': [
+        {
+          address: '172.28.0.1',
+          netmask: '255.255.240.0',
+          family: 'IPv4',
+          mac: '00:15:5d:ed:3c:eb',
+          internal: false,
+          cidr: '172.28.0.1/20'
+        }
+      ]
+    });
+
+    expect(address).toBe('192.168.100.6');
+  });
+
+  it('detects Ark TLS reset errors as eligible for direct network fallback', () => {
+    const error = new Error('fetch failed (ECONNRESET) host=ark.cn-beijing.volces.com');
+
+    expect(shouldUseDirectArkFallback(error, 'https://ark.cn-beijing.volces.com/api/v3/responses')).toBe(true);
+    expect(shouldUseDirectArkFallback(error, 'https://api.deepseek.com/chat/completions')).toBe(false);
   });
 
   it('maps evidence-backed research payload into a useful enterprise profile', () => {

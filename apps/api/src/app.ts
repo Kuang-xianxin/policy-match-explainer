@@ -47,7 +47,10 @@ function doubaoConfig() {
     apiKey: env.doubaoApiKey,
     model: env.doubaoModel,
     baseUrl: env.doubaoBaseUrl,
-    timeoutMs: env.doubaoTimeoutMs
+    timeoutMs: env.doubaoTimeoutMs,
+    directFallback: env.doubaoDirectFallback,
+    directResolvedIp: env.doubaoResolveIp,
+    directLocalAddress: env.doubaoLocalAddress
   };
 }
 
@@ -358,7 +361,10 @@ export function createApp() {
           configured: Boolean(env.doubaoApiKey && env.doubaoApiKey.trim().length > 0),
           model: env.doubaoModel,
           base_url: env.doubaoBaseUrl,
-          key_source: env.doubaoApiKeySource ?? null
+          key_source: env.doubaoApiKeySource ?? null,
+          direct_fallback: env.doubaoDirectFallback,
+          direct_resolved_ip: env.doubaoResolveIp ?? null,
+          direct_local_address: env.doubaoLocalAddress ?? null
         }
       }
     });

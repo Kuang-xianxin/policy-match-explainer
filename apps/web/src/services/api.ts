@@ -23,6 +23,9 @@ export interface AiStatus {
       model: string;
       base_url: string;
       key_source: string | null;
+      direct_fallback?: boolean;
+      direct_resolved_ip?: string | null;
+      direct_local_address?: string | null;
     };
   };
 }
