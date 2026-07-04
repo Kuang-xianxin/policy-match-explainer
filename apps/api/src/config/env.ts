@@ -58,6 +58,14 @@ const isTestRuntime = process.env.VITEST === 'true' || process.env.NODE_ENV === 
 const deepseekApiKey = isTestRuntime ? {} : readEnvValue(['DEEPSEEK_API_KET', 'DEEPSEEK_API_KEY']);
 const doubaoApiKey = isTestRuntime ? {} : readEnvValue(['ARK_API_KEY', 'DOUBAO_API_KEY']);
 const doubaoDirectFallback = (process.env.DOUBAO_DIRECT_FALLBACK ?? 'true').toLowerCase() !== 'false';
+export const DEFAULT_DOUBAO_MODEL = 'doubao-seed-2-0-mini-260428';
+
+export function normalizeDoubaoModel(value: string | undefined): string {
+  const model = value?.trim();
+  if (!model) return DEFAULT_DOUBAO_MODEL;
+  if (model.toLowerCase() === 'doubao-seed-2.0-mini') return DEFAULT_DOUBAO_MODEL;
+  return model;
+}
 
 export const env = {
   databaseUrl: process.env.DATABASE_URL ?? 'postgres://policy_user:policy_password@localhost:15432/policy_match',
@@ -70,7 +78,7 @@ export const env = {
   deepseekTimeoutMs: Number(process.env.DEEPSEEK_TIMEOUT_MS ?? 15000),
   doubaoApiKey: doubaoApiKey.value,
   doubaoApiKeySource: doubaoApiKey.source,
-  doubaoModel: process.env.DOUBAO_MODEL ?? 'doubao-seed-1-6-250615',
+  doubaoModel: normalizeDoubaoModel(process.env.DOUBAO_MODEL),
   doubaoBaseUrl: process.env.DOUBAO_BASE_URL ?? 'https://ark.cn-beijing.volces.com/api/v3/responses',
   doubaoTimeoutMs: Number(process.env.DOUBAO_TIMEOUT_MS ?? 45000),
   doubaoDirectFallback,

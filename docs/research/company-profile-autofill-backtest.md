@@ -31,7 +31,7 @@ The backend now has a `doubao_web_search` provider that calls Volcano Ark Respon
 Default configuration:
 
 - `DOUBAO_API_KEY`: read from process env or Windows registry.
-- `DOUBAO_MODEL`: defaults to `doubao-seed-1-6-250615`.
+- `DOUBAO_MODEL`: defaults to `doubao-seed-2-0-mini-260428`.
 - `DOUBAO_BASE_URL`: defaults to `https://ark.cn-beijing.volces.com/api/v3/responses`.
 
 Automated regression coverage:
@@ -42,7 +42,7 @@ Automated regression coverage:
 Local live backtest result:
 
 - The API process successfully read `DOUBAO_API_KEY` from Windows machine environment.
-- `GET /api/ai/status` reported Doubao configured with model `doubao-seed-1-6-250615`.
+- `GET /api/ai/status` reports Doubao configured with the active `DOUBAO_MODEL`.
 - Calls to `https://ark.cn-beijing.volces.com/api/v3/responses` failed before authentication with TLS/socket error `ECONNRESET host=ark.cn-beijing.volces.com`.
 - Because the provider could not reach the Ark endpoint from this machine, live queries still fell back to inferred drafts. This is an environment/network endpoint issue, not the profile-mapping logic.
 

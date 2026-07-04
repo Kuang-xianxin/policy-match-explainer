@@ -71,6 +71,10 @@ export interface CompanyResearchPayload {
   main_revenue_source?: string;
   project_direction?: string;
   project_stage?: ProjectStage;
+  is_headquarters?: boolean;
+  is_above_scale_enterprise?: boolean;
+  digital_transformation_status?: string;
+  award_titles?: string[];
   known_projects?: string[];
   production_projects?: string[];
   evidence: ResearchEvidence[];
@@ -427,6 +431,10 @@ function normalizeCandidate(raw: unknown, queryName: string): CompanyResearchPay
     main_revenue_source: stringValue(item.main_revenue_source) || undefined,
     project_direction: stringValue(item.project_direction) || undefined,
     project_stage: enumValue(item.project_stage, projectStages, 'planning'),
+    is_headquarters: booleanValue(item.is_headquarters, false),
+    is_above_scale_enterprise: booleanValue(item.is_above_scale_enterprise, false),
+    digital_transformation_status: stringValue(item.digital_transformation_status) || undefined,
+    award_titles: arrayOfStrings(item.award_titles),
     known_projects: arrayOfStrings(item.known_projects),
     production_projects: arrayOfStrings(item.production_projects),
     evidence,
@@ -446,10 +454,12 @@ export async function researchCompaniesWithDoubao(
     '必须使用联网搜索证据回答，只输出 JSON，不要输出解释文字。',
     '任务是根据用户输入的企业简称或全名，找出最可能的真实企业候选，并抽取企业政策匹配画像字段。',
     '优先使用企业官网、政府网站、交易所公告、年报、权威媒体和公开工商信息页面。',
-    '不得编造统一社会信用代码、法定代表人、成立日期、纳税、营收、利润、研发投入、员工人数或项目数据。',
-    '没有来源证据的字段填空字符串、0、false、unknown 或空数组。',
+    '重点抽取公开可核验字段：统一社会信用代码、法定代表人、成立日期、注册资本、登记状态、经营地址、行业、经营范围、上市状态、总部企业、规上企业、高新技术企业、科技型中小企业、专精特新、奖项荣誉、专利、软著、主营产品、客户类型、业务模式、数字化转型状态、公开披露的在研/建设项目和已投产/落地项目。',
+    '公开年报、招股书、交易所公告或官网披露了员工人数、营收、利润、纳税、研发投入、研发人员、项目投入时才可填写数值或区间，并在 evidence.fields 标明对应字段。',
+    '不得编造统一社会信用代码、法定代表人、成立日期、纳税、营收、利润、研发投入、员工人数或项目数据；没有公开证据的内部经营数据必须填 unknown 或 0。',
+    '没有来源证据的普通字段填空字符串、0、false、unknown 或空数组。',
     '只保留深圳市龙华区企业，或公开资料显示总部/项目/办公地址与龙华区强相关的企业。',
-    '输出 JSON 结构：{"candidates":[{company_name,credit_code,legal_representative,establishment_date,registered_year,registered_capital,registration_status,business_address,district,industry,business_scope,listed_status,employee_count,employee_range,revenue_last_year,revenue_range,profit_last_year,profit_range,tax_paid_last_year,tax_paid_range,rd_expense_last_year,rd_expense_range,rd_expense_ratio,rd_employee_count,rd_employee_range,is_high_tech_enterprise,is_tech_sme,has_specialized_new_sme,patent_count,software_copyright_count,main_business,main_products,customer_type,business_model,main_revenue_source,project_direction,project_stage,known_projects,production_projects,evidence,confidence}]}',
+    '输出 JSON 结构：{"candidates":[{company_name,credit_code,legal_representative,establishment_date,registered_year,registered_capital,registration_status,business_address,district,industry,business_scope,listed_status,employee_count,employee_range,revenue_last_year,revenue_range,profit_last_year,profit_range,tax_paid_last_year,tax_paid_range,rd_expense_last_year,rd_expense_range,rd_expense_ratio,rd_employee_count,rd_employee_range,is_high_tech_enterprise,is_tech_sme,has_specialized_new_sme,patent_count,software_copyright_count,main_business,main_products,customer_type,business_model,main_revenue_source,project_direction,project_stage,is_headquarters,is_above_scale_enterprise,digital_transformation_status,award_titles,known_projects,production_projects,evidence,confidence}]}',
     'evidence 每项必须包含 title,url,snippet,fields,confidence；fields 写明该来源支撑的字段名。'
   ].join('\n');
 
@@ -543,8 +553,18 @@ export function createProfileFromResearchPayload(
     legal_representative: firstNonEmpty(payload.legal_representative, mappedProfile.legal_representative),
     establishment_date: firstNonEmpty(payload.establishment_date, mappedProfile.establishment_date),
     registration_status: firstNonEmpty(payload.registration_status, mappedProfile.registration_status),
-    digital_transformation_status: firstNonEmpty(mappedProfile.digital_transformation_status),
-    award_titles: Array.isArray(mappedProfile.award_titles) ? mappedProfile.award_titles.map(String).filter(Boolean) : [],
+    is_headquarters: booleanValue(payload.is_headquarters, booleanValue(mappedProfile.is_headquarters, false)),
+    is_above_scale_enterprise: booleanValue(
+      payload.is_above_scale_enterprise,
+      booleanValue(mappedProfile.is_above_scale_enterprise, false)
+    ),
+    digital_transformation_status: firstNonEmpty(payload.digital_transformation_status, mappedProfile.digital_transformation_status),
+    award_titles:
+      payload.award_titles && payload.award_titles.length > 0
+        ? payload.award_titles
+        : Array.isArray(mappedProfile.award_titles)
+          ? mappedProfile.award_titles.map(String).filter(Boolean)
+          : [],
     known_projects: payload.known_projects ?? [],
     production_projects: payload.production_projects ?? [],
     employee_range: enumValue(payload.employee_range, employeeRanges, employeeRangeFromValue(employeeCount)),

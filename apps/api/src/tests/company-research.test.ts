@@ -77,7 +77,7 @@ describe('company research provider', () => {
     const candidates = await researchCompaniesWithDoubao('汇川技术', ['汇川技术'], {
       apiKey: 'test-key',
       baseUrl: 'https://ark.cn-beijing.volces.com/api/v3/responses',
-      model: 'doubao-seed-1-6-250615',
+      model: 'doubao-seed-2-0-mini-260428',
       timeoutMs: 1000
     });
 
@@ -96,6 +96,37 @@ describe('company research provider', () => {
     expect(candidates[0].registered_year).toBe(2003);
     expect(candidates[0].source_type).toBe('official_public_page');
     expect(candidates[0].evidence.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('asks Doubao to extract more public profile fields while keeping private metrics evidence-gated', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        output_text: JSON.stringify({ candidates: [] })
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await researchCompaniesWithDoubao('乐牙科技', ['乐牙科技'], {
+      apiKey: 'test-key',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3/responses',
+      model: 'doubao-seed-2-0-mini-260428',
+      timeoutMs: 1000
+    });
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? '{}')) as {
+      instructions?: string;
+    };
+
+    expect(requestBody.instructions).toContain('奖项荣誉');
+    expect(requestBody.instructions).toContain('数字化转型状态');
+    expect(requestBody.instructions).toContain('总部企业');
+    expect(requestBody.instructions).toContain('规上企业');
+    expect(requestBody.instructions).toContain('award_titles');
+    expect(requestBody.instructions).toContain('digital_transformation_status');
+    expect(requestBody.instructions).toContain('is_headquarters');
+    expect(requestBody.instructions).toContain('is_above_scale_enterprise');
+    expect(requestBody.instructions).toContain('没有公开证据的内部经营数据必须填 unknown 或 0');
   });
 
   it('selects a physical IPv4 address for Ark direct fallback instead of TUN or virtual adapters', () => {
@@ -173,6 +204,10 @@ describe('company research provider', () => {
       main_revenue_source: '工业自动化和新能源汽车相关产品销售',
       project_direction: '智能制造',
       project_stage: 'scaling',
+      is_headquarters: true,
+      is_above_scale_enterprise: true,
+      digital_transformation_status: '已建设数字化生产和经营管理系统。',
+      award_titles: ['国家级专精特新小巨人'],
       known_projects: ['汇川技术总部大厦', '工业机器人研发项目'],
       production_projects: ['工业自动化控制产品量产', '新能源汽车电驱系统量产'],
       evidence: [
@@ -199,6 +234,10 @@ describe('company research provider', () => {
     expect(profile.employee_range).toBe('gte_300');
     expect(profile.revenue_last_year).toBe(30420000000);
     expect(profile.rd_expense_last_year).toBe(3100000000);
+    expect(profile.is_headquarters).toBe(true);
+    expect(profile.is_above_scale_enterprise).toBe(true);
+    expect(profile.digital_transformation_status).toContain('数字化生产');
+    expect(profile.award_titles).toContain('国家级专精特新小巨人');
     expect(profile.known_projects).toContain('工业机器人研发项目');
     expect(profile.production_projects).toContain('新能源汽车电驱系统量产');
     expect(fieldSources.some((source) => source.field_key === 'business_address' && source.source_type === 'official_public_page')).toBe(true);

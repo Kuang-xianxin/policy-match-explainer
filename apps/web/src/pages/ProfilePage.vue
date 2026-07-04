@@ -174,7 +174,7 @@ async function doMatch(profileId: string) {
     <div class="page-heading">
       <div>
         <h1>企业画像生成</h1>
-        <p>先输入企业名称或简称，由 AI 规划查询词并从本地龙华企业索引中找候选；无命中时生成未验证画像草稿，可继续匹配但需人工确认。</p>
+        <p>输入企业名称或简称后，系统用豆包联网搜索公开证据生成候选和画像；无法核验的内部经营数据保留为未知，由用户确认后再匹配。</p>
       </div>
       <button class="outline-button" @click="startManualProfile"><PlusCircle :size="16" />空白手动编辑</button>
     </div>
@@ -189,7 +189,7 @@ async function doMatch(profileId: string) {
 
       <div class="search-row">
         <label>企业名称或简称
-          <input v-model="queryName" placeholder="例如：龙华智造、专精特新装备" @keyup.enter="doSearch" />
+          <input v-model="queryName" placeholder="例如：华傲数据、乐牙科技、汇川技术" @keyup.enter="doSearch" />
         </label>
         <div class="search-actions">
           <button :disabled="isSearching || isSmartMatching" @click="doSearch">
@@ -257,134 +257,20 @@ async function doMatch(profileId: string) {
         当前画像来自未验证 AI 草稿。企业名称、统一社会信用代码、经营地址、成立年份和资质状态都需要人工确认后才能用于正式申报。
       </div>
 
-      <div class="profile-summary">
-        <div>
-          <small>企业名称</small>
-          <strong>{{ profile.company_name || '待填写' }}</strong>
+      <div class="profile-form-section">
+        <div class="form-section-header">
+          <h3>必填字段</h3>
+          <p>这些字段直接参与政策范围、行业方向和项目阶段判断。</p>
         </div>
-        <div>
-          <small>统一社会信用代码</small>
-          <strong>{{ profile.credit_code || '待填写' }}</strong>
-        </div>
-        <div>
-          <small>法定代表人</small>
-          <strong>{{ profile.legal_representative || '待核验' }}</strong>
-        </div>
-        <div>
-          <small>成立时间</small>
-          <strong>{{ profile.establishment_date || profile.registered_year || '待核验' }}</strong>
-        </div>
-        <div>
-          <small>行业</small>
-          <strong>{{ profile.industry || '待填写' }}</strong>
-        </div>
-        <div>
-          <small>经营地址</small>
-          <strong>{{ profile.business_address || '待填写' }}</strong>
-        </div>
-      </div>
-
-      <div class="supplement-grid">
-        <label>企业人数
-          <select :value="profile.employee_range ?? 'unknown'" @change="applyCompanyEmployeeRange(($event.target as HTMLSelectElement).value as EmployeeRange)">
-            <option v-for="item in employeeRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label>上年营收
-          <select :value="profile.revenue_range ?? 'unknown'" @change="applyAmountRange('revenue_last_year', ($event.target as HTMLSelectElement).value as AmountRange)">
-            <option v-for="item in amountRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label>上年利润
-          <select :value="profile.profit_range ?? 'unknown'" @change="applyProfitRange(($event.target as HTMLSelectElement).value as ProfitRange)">
-            <option v-for="item in profitRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label>上年纳税
-          <select :value="profile.tax_paid_range ?? 'unknown'" @change="applyAmountRange('tax_paid_last_year', ($event.target as HTMLSelectElement).value as AmountRange)">
-            <option v-for="item in amountRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label>研发投入
-          <select :value="profile.rd_expense_range ?? 'unknown'" @change="applyAmountRange('rd_expense_last_year', ($event.target as HTMLSelectElement).value as AmountRange)">
-            <option v-for="item in amountRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label>研发人员
-          <select :value="profile.rd_employee_range ?? 'unknown'" @change="applyEmployeeRange(($event.target as HTMLSelectElement).value as EmployeeRange)">
-            <option v-for="item in employeeRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label>项目预算
-          <select :value="profile.project_budget_range ?? 'unknown'" @change="applyAmountRange('project_budget', ($event.target as HTMLSelectElement).value as AmountRange)">
-            <option v-for="item in amountRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label>项目方向
-          <select v-model="profile.project_direction">
-            <option value="AI">AI</option>
-            <option value="数据治理">数据治理</option>
-            <option value="智能制造">智能制造</option>
-            <option value="数字化转型">数字化转型</option>
-          </select>
-        </label>
-        <label>项目阶段
-          <select v-model="profile.project_stage">
-            <option value="planning">规划中</option>
-            <option value="researching">调研中</option>
-            <option value="developing">研发中</option>
-            <option value="launched">已落地</option>
-            <option value="scaling">规模化推广</option>
-          </select>
-        </label>
-        <label>高新技术企业
-          <select v-model="profile.is_high_tech_enterprise">
-            <option :value="true">是</option>
-            <option :value="false">否/未知</option>
-          </select>
-        </label>
-        <label>科技型中小企业
-          <select v-model="profile.is_tech_sme">
-            <option :value="true">是</option>
-            <option :value="false">否/未知</option>
-          </select>
-        </label>
-        <label>专精特新
-          <select v-model="profile.has_specialized_new_sme">
-            <option :value="true">是</option>
-            <option :value="false">否/未知</option>
-          </select>
-        </label>
-      </div>
-
-      <details class="advanced-editor">
-        <summary>高级编辑全部画像字段</summary>
         <div class="profile-grid">
           <label>企业名称<input v-model="profile.company_name" /></label>
           <label>统一社会信用代码<input v-model="profile.credit_code" /></label>
-          <label>法定代表人<input v-model="profile.legal_representative" /></label>
-          <label>成立日期<input v-model="profile.establishment_date" placeholder="YYYY-MM-DD" /></label>
-          <label>登记状态<input v-model="profile.registration_status" /></label>
           <label>城市<input v-model="profile.city" readonly /></label>
           <label>区县<input v-model="profile.district" readonly /></label>
           <label>成立年份<input v-model.number="profile.registered_year" type="number" /></label>
-          <label>上市状态
-            <select v-model="profile.listed_status">
-              <option value="unknown">未知</option>
-              <option value="unlisted">未上市</option>
-              <option value="listed">已上市</option>
-              <option value="new_third_board">新三板</option>
-              <option value="pre_listing">拟上市</option>
-            </select>
-          </label>
-          <label>员工人数<input v-model.number="profile.employee_count" type="number" /></label>
-          <label>注册资本（元）<input v-model.number="profile.registered_capital" type="number" /></label>
-          <label>经营地址<input v-model="profile.business_address" /></label>
           <label>行业<input v-model="profile.industry" /></label>
           <label>主营业务<textarea v-model="profile.main_business" /></label>
           <label>产品标签<input :value="profile.main_products.join(',')" @input="setArrayField('main_products', ($event.target as HTMLInputElement).value)" /></label>
-          <label>在研/建设项目<input :value="(profile.known_projects ?? []).join(',')" @input="setArrayField('known_projects', ($event.target as HTMLInputElement).value)" /></label>
-          <label>已投产/落地项目<input :value="(profile.production_projects ?? []).join(',')" @input="setArrayField('production_projects', ($event.target as HTMLInputElement).value)" /></label>
 
           <div class="field-block">
             <span>客户类型</span>
@@ -405,21 +291,140 @@ async function doMatch(profileId: string) {
               <option value="platform">平台</option>
               <option value="manufacturing">制造</option>
               <option value="service">服务</option>
-              <option value="other">其他</option>
+              <option value="other">其他/未知</option>
             </select>
           </label>
-
           <label>主要收入来源<input v-model="profile.main_revenue_source" /></label>
+          <label>申报项目名称<input v-model="profile.apply_project_name" /></label>
+          <label>项目方向
+            <select v-model="profile.project_direction">
+              <option value="待确认">待确认</option>
+              <option value="AI">AI</option>
+              <option value="数据治理">数据治理</option>
+              <option value="智能制造">智能制造</option>
+              <option value="数字化转型">数字化转型</option>
+              <option value="产业链协同">产业链协同</option>
+            </select>
+          </label>
+          <label>项目阶段
+            <select v-model="profile.project_stage">
+              <option value="planning">规划中</option>
+              <option value="researching">调研中</option>
+              <option value="developing">研发中</option>
+              <option value="launched">已落地</option>
+              <option value="scaling">规模化推广</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="profile-form-section">
+        <div class="form-section-header">
+          <h3>关键区间和资质</h3>
+          <p>非公开经营数据用区间表达，无法确认时保留未知。</p>
+        </div>
+        <div class="supplement-grid">
+          <label>企业人数
+            <select :value="profile.employee_range ?? 'unknown'" @change="applyCompanyEmployeeRange(($event.target as HTMLSelectElement).value as EmployeeRange)">
+              <option v-for="item in employeeRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>上年营收
+            <select :value="profile.revenue_range ?? 'unknown'" @change="applyAmountRange('revenue_last_year', ($event.target as HTMLSelectElement).value as AmountRange)">
+              <option v-for="item in amountRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>上年利润
+            <select :value="profile.profit_range ?? 'unknown'" @change="applyProfitRange(($event.target as HTMLSelectElement).value as ProfitRange)">
+              <option v-for="item in profitRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>上年纳税
+            <select :value="profile.tax_paid_range ?? 'unknown'" @change="applyAmountRange('tax_paid_last_year', ($event.target as HTMLSelectElement).value as AmountRange)">
+              <option v-for="item in amountRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>研发投入
+            <select :value="profile.rd_expense_range ?? 'unknown'" @change="applyAmountRange('rd_expense_last_year', ($event.target as HTMLSelectElement).value as AmountRange)">
+              <option v-for="item in amountRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>研发人员
+            <select :value="profile.rd_employee_range ?? 'unknown'" @change="applyEmployeeRange(($event.target as HTMLSelectElement).value as EmployeeRange)">
+              <option v-for="item in employeeRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>项目预算
+            <select :value="profile.project_budget_range ?? 'unknown'" @change="applyAmountRange('project_budget', ($event.target as HTMLSelectElement).value as AmountRange)">
+              <option v-for="item in amountRangeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>上市状态
+            <select v-model="profile.listed_status">
+              <option value="unknown">未知</option>
+              <option value="unlisted">未上市</option>
+              <option value="listed">已上市</option>
+              <option value="new_third_board">新三板</option>
+              <option value="pre_listing">拟上市</option>
+            </select>
+          </label>
+          <label>高新技术企业
+            <select v-model="profile.is_high_tech_enterprise">
+              <option :value="true">是</option>
+              <option :value="false">否/未知</option>
+            </select>
+          </label>
+          <label>科技型中小企业
+            <select v-model="profile.is_tech_sme">
+              <option :value="true">是</option>
+              <option :value="false">否/未知</option>
+            </select>
+          </label>
+          <label>专精特新
+            <select v-model="profile.has_specialized_new_sme">
+              <option :value="true">是</option>
+              <option :value="false">否/未知</option>
+            </select>
+          </label>
+          <label>规上企业
+            <select v-model="profile.is_above_scale_enterprise">
+              <option :value="true">是</option>
+              <option :value="false">否/未知</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="profile-form-section">
+        <div class="form-section-header">
+          <h3>选填字段</h3>
+          <p>用于提高解释质量和报告可读性，不确定时可以留空。</p>
+        </div>
+        <div class="profile-grid">
+          <label>法定代表人<input v-model="profile.legal_representative" /></label>
+          <label>成立日期<input v-model="profile.establishment_date" placeholder="YYYY-MM-DD" /></label>
+          <label>登记状态<input v-model="profile.registration_status" /></label>
+          <label>注册资本（元）<input v-model.number="profile.registered_capital" type="number" /></label>
+          <label>经营地址<input v-model="profile.business_address" /></label>
+          <label>总部企业
+            <select v-model="profile.is_headquarters">
+              <option :value="true">是</option>
+              <option :value="false">否/未知</option>
+            </select>
+          </label>
+          <label>数字化转型状态<input v-model="profile.digital_transformation_status" /></label>
+          <label>奖项荣誉<input :value="(profile.award_titles ?? []).join(',')" @input="setArrayField('award_titles', ($event.target as HTMLInputElement).value)" /></label>
+          <label>在研/建设项目<input :value="(profile.known_projects ?? []).join(',')" @input="setArrayField('known_projects', ($event.target as HTMLInputElement).value)" /></label>
+          <label>已投产/落地项目<input :value="(profile.production_projects ?? []).join(',')" @input="setArrayField('production_projects', ($event.target as HTMLInputElement).value)" /></label>
+          <label>员工人数<input v-model.number="profile.employee_count" type="number" /></label>
           <label>上年营收（元）<input v-model.number="profile.revenue_last_year" type="number" /></label>
           <label>上年利润（元）<input v-model.number="profile.profit_last_year" type="number" /></label>
           <label>上年纳税（元）<input v-model.number="profile.tax_paid_last_year" type="number" /></label>
-
           <label>研发投入（元）<input v-model.number="profile.rd_expense_last_year" type="number" /></label>
           <label>研发投入占比（%）<input v-model.number="profile.rd_expense_ratio" type="number" /></label>
           <label>研发人员数<input v-model.number="profile.rd_employee_count" type="number" /></label>
           <label>专利数量<input v-model.number="profile.patent_count" type="number" /></label>
           <label>软著数量<input v-model.number="profile.software_copyright_count" type="number" /></label>
-
           <label>税务信用等级
             <select v-model="profile.tax_credit_level">
               <option value="unknown">未知</option>
@@ -442,12 +447,9 @@ async function doMatch(profileId: string) {
               <option :value="false">异常</option>
             </select>
           </label>
-
-          <label>申报项目名称<input v-model="profile.apply_project_name" /></label>
-          <label>项目方向<input v-model="profile.project_direction" /></label>
           <label>项目预算（元）<input v-model.number="profile.project_budget" type="number" /></label>
         </div>
-      </details>
+      </div>
     </section>
 
     <section class="panel">

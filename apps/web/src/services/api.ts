@@ -1,4 +1,11 @@
-import type { CompanyLookupCandidate, CompanyLookupPlan, EnterpriseProfile, FieldSource } from '@policy-match/shared';
+import type {
+  CompanyLookupCandidate,
+  CompanyLookupPlan,
+  EnterpriseProfile,
+  FieldSource,
+  MatchedCondition,
+  MissingCondition
+} from '@policy-match/shared';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
 
@@ -60,6 +67,10 @@ export interface MatchResult {
   id: string;
   baseline_score: number;
   baseline_level: string;
+  matched_conditions: MatchedCondition[];
+  missing_conditions: MissingCondition[];
+  risk_notes: string[];
+  hard_failures: string[];
   ai_review_summary: string;
   ai_adjustment: number;
   ai_mode: 'deepseek' | 'doubao' | 'mock';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readEnvValue } from './env.js';
+import { DEFAULT_DOUBAO_MODEL, normalizeDoubaoModel, readEnvValue } from './env.js';
 
 describe('env lookup', () => {
   it('supports the DEEPSEEK_API_KET alias before the standard key name', () => {
@@ -26,5 +26,16 @@ describe('env lookup', () => {
 
     delete process.env.TEST_ARK_API_KEY;
     delete process.env.TEST_DOUBAO_API_KEY;
+  });
+
+  it('defaults Doubao web search to the enabled Seed 2.0 mini model id', () => {
+    expect(DEFAULT_DOUBAO_MODEL).toBe('doubao-seed-2-0-mini-260428');
+  });
+
+  it('normalizes Doubao display names to Ark model ids', () => {
+    expect(normalizeDoubaoModel('Doubao-Seed-2.0-mini')).toBe(DEFAULT_DOUBAO_MODEL);
+    expect(normalizeDoubaoModel(' doubao-seed-2-0-mini-260428 ')).toBe(DEFAULT_DOUBAO_MODEL);
+    expect(normalizeDoubaoModel('custom-ark-endpoint-id')).toBe('custom-ark-endpoint-id');
+    expect(normalizeDoubaoModel(undefined)).toBe(DEFAULT_DOUBAO_MODEL);
   });
 });
