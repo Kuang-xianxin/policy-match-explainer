@@ -69,7 +69,7 @@ Pure search cost conclusion:
 For the next implementation:
 
 1. Use a provider interface so the backend can switch between `doubao_search`, `qianfan_search`, and `disabled`.
-2. Use Doubao Search first for normal evidence retrieval because its listed search-call price is lower.
+2. Use Doubao Search first for normal evidence retrieval because its listed search-call price is lower. The current implementation uses Volcano Ark Responses API with `web_search` and defaults to `doubao-seed-1-6-250615`; `DOUBAO_MODEL` remains configurable for Seed 2.1 Turbo/Pro after authorization and cost checks.
 3. Keep Baidu Qianfan Search as a fallback or comparison source, especially when Doubao recall is weak for official/government/company pages.
 4. Cache search evidence in PostgreSQL by normalized company name and provider to avoid repeated paid calls.
 5. Do not rely on black-box search summaries as factual fields. Store URLs, titles, snippets, dates, provider name, retrieval time, and confidence, then run typed extraction from that evidence.

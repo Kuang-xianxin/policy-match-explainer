@@ -69,10 +69,15 @@ export const enterpriseProfileSchema = z.object({
   project_budget: z.coerce.number().nonnegative(),
   registered_capital: z.coerce.number().nonnegative().optional(),
   business_address: z.string().optional(),
+  legal_representative: z.string().optional(),
+  establishment_date: z.string().optional(),
+  registration_status: z.string().optional(),
   is_headquarters: z.coerce.boolean().optional(),
   is_above_scale_enterprise: z.coerce.boolean().optional(),
   digital_transformation_status: z.string().optional(),
   award_titles: z.array(z.string()).optional(),
+  known_projects: z.array(z.string()).optional(),
+  production_projects: z.array(z.string()).optional(),
   employee_range: employeeRangeSchema.optional(),
   revenue_range: amountRangeSchema.optional(),
   profit_range: profitRangeSchema.optional(),
@@ -136,7 +141,7 @@ export interface CompanyLookupPlan {
   search_keywords: string[];
   recommended_sources: string[];
   explanation: string;
-  ai_mode: 'deepseek' | 'mock';
+  ai_mode: 'deepseek' | 'doubao' | 'mock';
 }
 
 export interface CompanyLookupCandidate {
@@ -211,7 +216,7 @@ export interface AiMatchReview {
   ai_suggested_actions: string[];
   ai_confidence: number;
   ai_adjustment: number;
-  ai_mode: 'deepseek' | 'mock';
+  ai_mode: 'deepseek' | 'doubao' | 'mock';
 }
 
 export interface PolicyMatchResult extends BaselineMatchResult, AiMatchReview {

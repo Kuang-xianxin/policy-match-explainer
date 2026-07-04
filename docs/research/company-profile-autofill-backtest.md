@@ -24,6 +24,33 @@ All samples below fell through to the `inferred` fallback instead of a real ente
 | 英维克 | 深圳市英维克科技有限公司 | inferred | `UNCONFIRMED-*` | 2026 | 0 / unknown | 0 / unknown | Wrong entity type and missing facts |
 | 深圳市英维克科技股份有限公司 | 深圳市英维克科技股份有限公司 | inferred | `UNCONFIRMED-*` | 2026 | 0 / unknown | 0 / unknown | Correct name text but unverified and missing facts |
 
+## 2026-07-04 Implementation Update
+
+The backend now has a `doubao_web_search` provider that calls Volcano Ark Responses API with the `web_search` tool and maps evidence-backed candidates into enterprise profiles.
+
+Default configuration:
+
+- `DOUBAO_API_KEY`: read from process env or Windows registry.
+- `DOUBAO_MODEL`: defaults to `doubao-seed-1-6-250615`.
+- `DOUBAO_BASE_URL`: defaults to `https://ark.cn-beijing.volces.com/api/v3/responses`.
+
+Automated regression coverage:
+
+- `汇川技术` mocked Doubao response must map to `深圳市汇川技术股份有限公司`, preserve credit code, legal representative, 2003 establishment year, Longhua address, employee count, revenue, R&D expense, known projects, production projects, and field-level sources.
+- `科达利` and `英维克` evidence-backed samples must map without falling back to `UNCONFIRMED-*` inferred drafts.
+
+Local live backtest result:
+
+- The API process successfully read `DOUBAO_API_KEY` from Windows machine environment.
+- `GET /api/ai/status` reported Doubao configured with model `doubao-seed-1-6-250615`.
+- Calls to `https://ark.cn-beijing.volces.com/api/v3/responses` failed before authentication with TLS/socket error `ECONNRESET host=ark.cn-beijing.volces.com`.
+- Because the provider could not reach the Ark endpoint from this machine, live queries still fell back to inferred drafts. This is an environment/network endpoint issue, not the profile-mapping logic.
+
+Follow-up for production/server deployment:
+
+- Test the same API call from the Tencent Cloud server. If the server can reach `ark.cn-beijing.volces.com`, no code change is needed.
+- If the local or server network still resets TLS, configure `DOUBAO_BASE_URL` to an approved gateway/proxy endpoint or use a provider whose API domain is reachable from the deployment network.
+
 ## Public Evidence Check
 
 Public pages show that useful profile fields exist online, but the current backend never retrieves them:

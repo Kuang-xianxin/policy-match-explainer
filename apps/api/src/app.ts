@@ -17,6 +17,13 @@ import { evaluatePolicy, levelFromFinalScore } from '@policy-match/matcher';
 import { env } from './config/env.js';
 import { searchDemoCompanies, type DemoCompanyPayload } from './data/demo-companies.js';
 import { pool } from './db/pool.js';
+import {
+  createProfileFromResearchPayload,
+  missingFieldsForProfile,
+  researchCompaniesWithDoubao,
+  researchFieldSources,
+  type CompanyResearchPayload
+} from './services/company-research.js';
 import { createSession, hashPassword, hashToken, requireAuth, verifyPassword, type AuthenticatedRequest } from './services/auth.js';
 
 function asyncHandler<T extends Request>(handler: (req: T, res: Response) => Promise<void>) {
@@ -31,6 +38,15 @@ function aiConfig() {
     model: env.deepseekModel,
     baseUrl: env.deepseekBaseUrl,
     timeoutMs: env.deepseekTimeoutMs
+  };
+}
+
+function doubaoConfig() {
+  return {
+    apiKey: env.doubaoApiKey,
+    model: env.doubaoModel,
+    baseUrl: env.doubaoBaseUrl,
+    timeoutMs: env.doubaoTimeoutMs
   };
 }
 
@@ -232,6 +248,15 @@ function baseFieldSources(raw: DemoCompanyPayload & { source_type?: string }, so
   }));
 }
 
+function isCompanyResearchPayload(raw: unknown): raw is CompanyResearchPayload {
+  return Boolean(
+    raw &&
+      typeof raw === 'object' &&
+      typeof (raw as { company_name?: unknown }).company_name === 'string' &&
+      Array.isArray((raw as { evidence?: unknown }).evidence)
+  );
+}
+
 function cleanFieldSources(sources: unknown, fallbackSourceName: string, forceInferred: boolean): FieldSource[] {
   if (!Array.isArray(sources)) return [];
   return sources
@@ -267,8 +292,18 @@ function dedupeFieldSources(sources: FieldSource[]): FieldSource[] {
 }
 
 function sourceTypeFromFieldSources(fieldSources: FieldSource[]): ProfileFieldSourceType {
-  if (fieldSources.some((source) => source.source_type === 'inferred')) return 'inferred';
-  return fieldSources[0]?.source_type ?? 'manual';
+  const precedence: ProfileFieldSourceType[] = [
+    'commercial_api',
+    'official_open_data',
+    'official_public_page',
+    'local_seed',
+    'manual',
+    'inferred'
+  ];
+  for (const sourceType of precedence) {
+    if (fieldSources.some((source) => source.source_type === sourceType)) return sourceType;
+  }
+  return 'manual';
 }
 
 function verificationStatusFromSourceType(sourceType: ProfileFieldSourceType): string {
@@ -312,7 +347,20 @@ export function createApp() {
       configured: Boolean(env.deepseekApiKey && env.deepseekApiKey.trim().length > 0),
       model: env.deepseekModel,
       mode: env.deepseekApiKey ? 'deepseek' : 'mock',
-      key_source: env.deepseekApiKeySource ?? null
+      key_source: env.deepseekApiKeySource ?? null,
+      providers: {
+        deepseek: {
+          configured: Boolean(env.deepseekApiKey && env.deepseekApiKey.trim().length > 0),
+          model: env.deepseekModel,
+          key_source: env.deepseekApiKeySource ?? null
+        },
+        doubao: {
+          configured: Boolean(env.doubaoApiKey && env.doubaoApiKey.trim().length > 0),
+          model: env.doubaoModel,
+          base_url: env.doubaoBaseUrl,
+          key_source: env.doubaoApiKeySource ?? null
+        }
+      }
     });
   });
 
@@ -364,11 +412,67 @@ export function createApp() {
   app.post('/api/company-lookup/search', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
     const body = companyLookupSearchSchema.parse(req.body);
     const plan = await planCompanyLookup(body.query_name, aiConfig());
-    const searched = searchDemoCompanies([body.query_name, ...plan.search_keywords])
+    const candidates: CompanyLookupCandidate[] = [];
+    let lookupPlan = plan;
+
+    if (env.doubaoApiKey) {
+      try {
+        const researchedCompanies = await researchCompaniesWithDoubao(body.query_name, plan.search_keywords, doubaoConfig());
+        for (const company of researchedCompanies) {
+          const inserted = await pool.query(
+            `
+            INSERT INTO company_lookup_records (
+              user_id, query_name, selected_company_name, selected_credit_code,
+              source_name, source_type, raw_payload, confidence
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+            RETURNING id
+            `,
+            [
+              req.user.id,
+              body.query_name,
+              company.company_name,
+              company.credit_code,
+              'doubao_web_search',
+              company.source_type,
+              JSON.stringify(company),
+              company.confidence
+            ]
+          );
+
+          candidates.push({
+            lookup_id: inserted.rows[0].id,
+            company_name: company.company_name,
+            credit_code: company.credit_code,
+            business_address: company.business_address ?? '',
+            registration_status: company.registration_status ?? '公开资料待核验',
+            source_name: '豆包联网搜索证据',
+            source_type: company.source_type,
+            confidence: company.confidence
+          });
+        }
+
+        lookupPlan = {
+          ...plan,
+          ai_mode: 'doubao',
+          recommended_sources: Array.from(new Set(['doubao_web_search', ...plan.recommended_sources])),
+          explanation: `${plan.explanation} 已优先调用豆包联网搜索获取公开证据。`
+        };
+      } catch (error) {
+        lookupPlan = {
+          ...plan,
+          recommended_sources: Array.from(new Set(['doubao_web_search', ...plan.recommended_sources])),
+          explanation: `${plan.explanation} 豆包联网搜索失败，已退回本地索引/待确认草稿：${
+            error instanceof Error ? error.message : String(error)
+          }`
+        };
+      }
+    }
+
+    const searched = candidates.length > 0 ? [] : searchDemoCompanies([body.query_name, ...plan.search_keywords])
       .map((company) => ({ company, confidence: candidateConfidence(body.query_name, company) }))
       .filter((item) => item.confidence >= 0.7)
       .sort((a, b) => b.confidence - a.confidence);
-    const candidates: CompanyLookupCandidate[] = [];
 
     for (const { company, confidence } of searched) {
       const inserted = await pool.query(
@@ -439,7 +543,7 @@ export function createApp() {
       });
     }
 
-    res.json({ lookup_plan: plan, candidates });
+    res.json({ lookup_plan: lookupPlan, candidates });
   }));
 
   app.post('/api/company-lookup/:id/generate-profile', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
@@ -455,22 +559,33 @@ export function createApp() {
 
     const rawPayload = record.raw_payload as Record<string, unknown>;
     const extracted = await extractEnterpriseProfile({ rawPayload, sourceName: record.source_name }, aiConfig());
-    const enterpriseProfile = generatedProfileFromLookup(rawPayload, extracted.mapped_profile);
+    const enterpriseProfile = isCompanyResearchPayload(rawPayload)
+      ? createProfileFromResearchPayload(rawPayload, extracted.mapped_profile)
+      : generatedProfileFromLookup(rawPayload, extracted.mapped_profile);
     const isInferredLookup = record.source_type === 'inferred';
-    const fieldSources = dedupeFieldSources([
-      ...baseFieldSources(rawPayload as unknown as DemoCompanyPayload, record.source_name),
-      ...cleanFieldSources(extracted.field_sources, record.source_name, isInferredLookup)
-    ]);
+    const fieldSources = isCompanyResearchPayload(rawPayload)
+      ? dedupeFieldSources([
+          ...researchFieldSources(rawPayload, record.source_name),
+          ...cleanFieldSources(extracted.field_sources, record.source_name, false)
+        ])
+      : dedupeFieldSources([
+          ...baseFieldSources(rawPayload as unknown as DemoCompanyPayload, record.source_name),
+          ...cleanFieldSources(extracted.field_sources, record.source_name, isInferredLookup)
+        ]);
     const missingFields = Array.from(
       new Set([
         ...extracted.missing_fields,
-        'employee_count',
-        'revenue_last_year',
-        'profit_last_year',
-        'tax_paid_last_year',
-        'rd_expense_last_year',
-        'rd_employee_count',
-        'project_budget'
+        ...(isCompanyResearchPayload(rawPayload)
+          ? missingFieldsForProfile(enterpriseProfile)
+          : [
+              'employee_count',
+              'revenue_last_year',
+              'profit_last_year',
+              'tax_paid_last_year',
+              'rd_expense_last_year',
+              'rd_employee_count',
+              'project_budget'
+            ])
       ])
     );
 

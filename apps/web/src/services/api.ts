@@ -11,7 +11,20 @@ export interface AiStatus {
   provider: 'deepseek';
   configured: boolean;
   model: string;
-  mode: 'deepseek' | 'mock';
+  mode: 'deepseek' | 'doubao' | 'mock';
+  providers?: {
+    deepseek: {
+      configured: boolean;
+      model: string;
+      key_source: string | null;
+    };
+    doubao: {
+      configured: boolean;
+      model: string;
+      base_url: string;
+      key_source: string | null;
+    };
+  };
 }
 
 export interface EnterpriseProfileRecord {
@@ -31,7 +44,7 @@ export interface GenerateProfileResponse {
   field_sources: FieldSource[];
   missing_fields: string[];
   ai_confidence: number;
-  ai_mode: 'deepseek' | 'mock';
+  ai_mode: 'deepseek' | 'doubao' | 'mock';
 }
 
 export interface MatchRun {
@@ -46,7 +59,7 @@ export interface MatchResult {
   baseline_level: string;
   ai_review_summary: string;
   ai_adjustment: number;
-  ai_mode: 'deepseek' | 'mock';
+  ai_mode: 'deepseek' | 'doubao' | 'mock';
   ai_explanation: string;
   ai_missing_fields: string[];
   ai_suggested_actions: string[];

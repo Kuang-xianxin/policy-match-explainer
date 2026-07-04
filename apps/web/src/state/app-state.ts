@@ -264,6 +264,11 @@ export function startManualProfile(): void {
     project_budget: 0,
     registered_capital: 0,
     business_address: '',
+    legal_representative: '',
+    establishment_date: '',
+    registration_status: '',
+    known_projects: [],
+    production_projects: [],
     employee_range: 'unknown',
     revenue_range: 'unknown',
     profit_range: 'unknown',
@@ -274,7 +279,7 @@ export function startManualProfile(): void {
   };
 }
 
-export function setArrayField(field: 'main_products' | 'customer_type', value: string): void {
+export function setArrayField(field: 'main_products' | 'customer_type' | 'known_projects' | 'production_projects', value: string): void {
   if (!appState.draftProfile) return;
   const values = value
     .split(',')
@@ -285,7 +290,7 @@ export function setArrayField(field: 'main_products' | 'customer_type', value: s
     appState.draftProfile.customer_type = values.filter((item): item is CustomerType => allowed.includes(item as CustomerType));
     return;
   }
-  appState.draftProfile.main_products = values;
+  appState.draftProfile[field] = values;
 }
 
 export function applyAmountRange(

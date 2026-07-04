@@ -32,6 +32,12 @@ const generatedProfileIsInferred = computed(() =>
   appState.generatedProfileMeta?.field_sources.some((item) => item.source_type === 'inferred') ?? false
 );
 
+function modeLabel(mode?: string): string {
+  if (mode === 'deepseek') return 'DeepSeek';
+  if (mode === 'doubao') return '豆包联网搜索';
+  return 'mock';
+}
+
 const amountRangeOptions: Array<{ value: AmountRange; label: string }> = [
   { value: 'unknown', label: '未知' },
   { value: 'none', label: '无或接近 0' },
@@ -177,7 +183,7 @@ async function doMatch(profileId: string) {
       <div class="section-title">
         <div>
           <h2>1. 搜索候选企业</h2>
-          <p class="hint">当前不接入付费企查查/天眼查 API，MVP 使用本地龙华企业示例索引；未命中时只生成待确认草稿，不代表工商验证结果。</p>
+          <p class="hint">优先使用豆包联网搜索获取官网、政府页面、公告和年报证据；未命中或检索失败时才退回本地示例索引和待确认草稿。</p>
         </div>
       </div>
 
@@ -199,7 +205,7 @@ async function doMatch(profileId: string) {
 
       <div v-if="appState.lookupPlan" class="lookup-plan">
         <strong>AI 查询计划</strong>
-        <span>模式：{{ appState.lookupPlan.ai_mode === 'deepseek' ? 'DeepSeek' : 'mock' }}</span>
+        <span>模式：{{ modeLabel(appState.lookupPlan.ai_mode) }}</span>
         <span>标准查询：{{ appState.lookupPlan.normalized_query }}</span>
         <span>关键词：{{ appState.lookupPlan.search_keywords.join('、') }}</span>
       </div>
@@ -242,7 +248,7 @@ async function doMatch(profileId: string) {
       </div>
 
       <div v-if="appState.generatedProfileMeta" class="lookup-plan">
-        <span>画像生成：{{ appState.generatedProfileMeta.ai_mode === 'deepseek' ? 'DeepSeek' : 'mock' }}</span>
+        <span>画像生成：{{ modeLabel(appState.generatedProfileMeta.ai_mode) }}</span>
         <span>置信度：{{ Math.round(appState.generatedProfileMeta.ai_confidence * 100) }}%</span>
         <span>待补字段：{{ appState.generatedProfileMeta.missing_fields.join('、') }}</span>
       </div>
@@ -258,6 +264,14 @@ async function doMatch(profileId: string) {
         <div>
           <small>统一社会信用代码</small>
           <strong>{{ profile.credit_code || '待填写' }}</strong>
+        </div>
+        <div>
+          <small>法定代表人</small>
+          <strong>{{ profile.legal_representative || '待核验' }}</strong>
+        </div>
+        <div>
+          <small>成立时间</small>
+          <strong>{{ profile.establishment_date || profile.registered_year || '待核验' }}</strong>
         </div>
         <div>
           <small>行业</small>
@@ -347,6 +361,9 @@ async function doMatch(profileId: string) {
         <div class="profile-grid">
           <label>企业名称<input v-model="profile.company_name" /></label>
           <label>统一社会信用代码<input v-model="profile.credit_code" /></label>
+          <label>法定代表人<input v-model="profile.legal_representative" /></label>
+          <label>成立日期<input v-model="profile.establishment_date" placeholder="YYYY-MM-DD" /></label>
+          <label>登记状态<input v-model="profile.registration_status" /></label>
           <label>城市<input v-model="profile.city" readonly /></label>
           <label>区县<input v-model="profile.district" readonly /></label>
           <label>成立年份<input v-model.number="profile.registered_year" type="number" /></label>
@@ -365,6 +382,8 @@ async function doMatch(profileId: string) {
           <label>行业<input v-model="profile.industry" /></label>
           <label>主营业务<textarea v-model="profile.main_business" /></label>
           <label>产品标签<input :value="profile.main_products.join(',')" @input="setArrayField('main_products', ($event.target as HTMLInputElement).value)" /></label>
+          <label>在研/建设项目<input :value="(profile.known_projects ?? []).join(',')" @input="setArrayField('known_projects', ($event.target as HTMLInputElement).value)" /></label>
+          <label>已投产/落地项目<input :value="(profile.production_projects ?? []).join(',')" @input="setArrayField('production_projects', ($event.target as HTMLInputElement).value)" /></label>
 
           <div class="field-block">
             <span>客户类型</span>
