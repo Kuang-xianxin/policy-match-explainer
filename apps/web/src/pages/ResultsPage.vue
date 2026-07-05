@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { FileText, RefreshCcw } from 'lucide-vue-next';
 import { appState, generateReport, loadLatestMatchRun } from '../state/app-state';
+import { profileFieldLabel } from '../utils/profile-field-labels';
 
 const sortedResults = computed(() =>
   [...appState.matchResults].sort((a, b) => Number(b.final_score) - Number(a.final_score))
@@ -142,11 +143,13 @@ async function doGenerateReport() {
             <p>{{ item.ai_review_summary }}</p>
             <p>{{ item.ai_explanation }}</p>
             <div class="condition-list">
-              <strong>AI 认为还要确认</strong>
+              <strong>建议补充的企业信息</strong>
               <ul v-if="item.ai_missing_fields.length">
-                <li v-for="field in item.ai_missing_fields" :key="`${item.id}-ai-missing-${field}`">{{ field }}</li>
+                <li v-for="field in item.ai_missing_fields" :key="`${item.id}-ai-missing-${field}`">
+                  {{ profileFieldLabel(field) }}
+                </li>
               </ul>
-              <p v-else class="hint">没有额外缺失字段。</p>
+              <p v-else class="hint">暂无建议补充的企业信息。</p>
             </div>
           </section>
 
