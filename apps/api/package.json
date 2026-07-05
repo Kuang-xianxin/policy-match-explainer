@@ -10,6 +10,7 @@
     "db:check": "tsx src/db/check.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
+    "db:collect:longhua": "tsx src/db/collect-longhua-policies.ts",
     "db:reset": "tsx src/db/reset.ts",
     "test": "vitest run"
   },

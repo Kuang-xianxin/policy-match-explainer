@@ -85,3 +85,10 @@ DEEPSEEK_TIMEOUT_MS=15000
 ```
 
 你可以复制 `.env.example` 为 `.env`，然后在本地 `.env` 中填写自己的 key。也可以直接设置 Windows 用户/系统环境变量，后端会优先读取 `DEEPSEEK_API_KET`，再读取标准拼写 `DEEPSEEK_API_KEY`。没有配置 key 时，系统会使用明确标记为 `mock` 的本地 AI 结果，便于开发和测试。配置 API Key 后，后端会调用 DeepSeek Chat Completion API；如果调用超时或返回 JSON 不完整，会自动降级为 mock 结果，保证匹配流程不中断。
+## 龙华公开政策采集
+
+```bash
+npm run db:collect:longhua
+```
+
+采集器会把公开政策网页保存到 `source_documents`，并把适合参与企业画像匹配的政策/申报类文档同步到 `policies`。详细口径见 `docs/operations/longhua-policy-collection.md`。

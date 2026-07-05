@@ -32,6 +32,16 @@
 - The profile edit page should expose required and optional fields directly. Do not hide optional fields behind an advanced-editor-only interaction; the user should see required fields first, then range/qualification fields, then optional evidence fields.
 - Any future Longhua enterprise registry must be a separate optional local searchable index/cache built from authorized providers, not an unauthorized copied full registry or a crawler that bypasses public query restrictions.
 
+## Longhua Policy Source Library
+
+- The local Longhua policy library must separate raw public-source capture from derived match rules.
+- `source_documents` stores public Longhua policy files, application guides, department notices, policy interpretations, source URLs, list URLs, publish dates, departments, raw HTML, extracted text, attachments, and raw payload metadata.
+- `policies` stores the subset of source documents that are suitable for enterprise-profile matching. Policy interpretations should remain available in `source_documents` but should not directly flood match results.
+- The collector command is `npm run db:collect:longhua`. It must run after PostgreSQL is up and migrations are applied.
+- The collector may only access publicly reachable web pages. Do not bypass login, captcha, enterprise authentication, mobile-app restrictions, or site access controls.
+- Imported policy records can have empty `rules` until a later structured-policy extraction step. Do not imply that raw imported policy text has already been converted into high-confidence weighted rules.
+- If local Windows network/TUN/DNS breaks TLS access to `www.szlhq.gov.cn`, run the same collector on the Tencent Cloud server or another normal network environment and record the failure honestly.
+
 ## Local Database Architecture
 
 - Local development PostgreSQL should use the project Docker service on host port `15432`, not the machine-global PostgreSQL service on `5432`.

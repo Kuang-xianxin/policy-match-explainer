@@ -2,7 +2,7 @@ import type { EnterpriseProfile } from '@policy-match/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../app.js';
-import { closePool } from '../db/pool.js';
+import { closePool, pool } from '../db/pool.js';
 import { resetDatabase } from '../db/reset.js';
 import { seedPolicies } from '../db/seed.js';
 
@@ -143,6 +143,21 @@ describe('policy match MVP flow', () => {
     expect(created.body.enterprise_profile.verification_status).toBe('inferred');
     expect(created.body.enterprise_profile.source_type).toBe('inferred');
     const profileId = created.body.enterprise_profile.id as string;
+
+    await pool.query(
+      `
+      INSERT INTO policies (title, category, source_url, status, policy_text, rules, document_type)
+      VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6)
+      `,
+      [
+        'Imported Longhua source text without structured rules',
+        '科技创新',
+        'https://www.szlhq.gov.cn/xxgk/xwzx/tzgg/content/post_unstructured.html',
+        'active',
+        'This imported public source document has not been converted into match rules yet.',
+        'application_guide'
+      ]
+    );
 
     const matchRun = await request(app)
       .post('/api/match-runs')

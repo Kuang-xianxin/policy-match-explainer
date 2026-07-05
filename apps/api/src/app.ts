@@ -754,7 +754,9 @@ export function createApp() {
       ]
     );
     const run = runResult.rows[0];
-    const policiesResult = await pool.query('SELECT id, title, category, source_url, status, policy_text, rules FROM policies ORDER BY title');
+    const policiesResult = await pool.query(
+      'SELECT id, title, category, source_url, status, policy_text, rules FROM policies WHERE jsonb_array_length(rules) > 0 ORDER BY title'
+    );
     const results = [];
 
     for (const policy of policiesResult.rows as Policy[]) {

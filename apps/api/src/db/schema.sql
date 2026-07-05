@@ -53,16 +53,44 @@ ALTER TABLE enterprise_profiles ADD COLUMN IF NOT EXISTS field_sources jsonb NOT
 ALTER TABLE enterprise_profiles ADD COLUMN IF NOT EXISTS source_type text NOT NULL DEFAULT 'manual';
 ALTER TABLE enterprise_profiles ADD COLUMN IF NOT EXISTS verification_status text NOT NULL DEFAULT 'manual';
 
+CREATE TABLE IF NOT EXISTS source_documents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_url text NOT NULL UNIQUE,
+  document_type text NOT NULL,
+  title text NOT NULL,
+  source_site text NOT NULL DEFAULT '龙华政府在线',
+  source_department text,
+  list_url text,
+  publish_date date,
+  content_text text NOT NULL DEFAULT '',
+  raw_html text,
+  raw_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  content_hash text NOT NULL,
+  fetched_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS policies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_document_id uuid REFERENCES source_documents(id) ON DELETE SET NULL,
   title text NOT NULL UNIQUE,
   category text NOT NULL,
   source_url text NOT NULL,
   status text NOT NULL,
   policy_text text NOT NULL,
   rules jsonb NOT NULL,
+  publish_date date,
+  source_department text,
+  document_type text NOT NULL DEFAULT 'policy_file',
+  raw_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS source_document_id uuid REFERENCES source_documents(id) ON DELETE SET NULL;
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS publish_date date;
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS source_department text;
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS document_type text NOT NULL DEFAULT 'policy_file';
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS raw_payload jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS match_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -123,6 +151,11 @@ CREATE TABLE IF NOT EXISTS reports (
 
 CREATE INDEX IF NOT EXISTS idx_enterprise_profiles_user_id ON enterprise_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_company_lookup_user_id ON company_lookup_records(user_id);
+CREATE INDEX IF NOT EXISTS idx_source_documents_type ON source_documents(document_type);
+CREATE INDEX IF NOT EXISTS idx_source_documents_publish_date ON source_documents(publish_date);
+CREATE INDEX IF NOT EXISTS idx_source_documents_department ON source_documents(source_department);
+CREATE INDEX IF NOT EXISTS idx_policies_document_type ON policies(document_type);
+CREATE INDEX IF NOT EXISTS idx_policies_publish_date ON policies(publish_date);
 CREATE INDEX IF NOT EXISTS idx_match_runs_user_id ON match_runs(user_id);
 CREATE INDEX IF NOT EXISTS idx_match_results_run_id ON match_results(match_run_id);
 CREATE INDEX IF NOT EXISTS idx_reports_run_id ON reports(match_run_id);
