@@ -3,11 +3,13 @@ import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { RouterLink, RouterView, useRouter } from 'vue-router';
 import { FileText, LogOut, ShieldCheck, UserRoundPen } from 'lucide-vue-next';
 import { appState, loadAiStatus, logout } from './state/app-state';
+import { shouldShowLoginNav } from './utils/nav-visibility';
 
 const router = useRouter();
 const aiLabel = computed(() =>
   appState.aiStatus?.configured ? `DeepSeek ${appState.aiStatus.model}` : 'DeepSeek key 未配置'
 );
+const showLoginNav = computed(() => shouldShowLoginNav(Boolean(appState.token)));
 
 onMounted(async () => {
   window.addEventListener('policy-match-auth-expired', handleAuthExpired);
@@ -50,7 +52,7 @@ function handleAuthExpired() {
       </RouterLink>
 
       <nav>
-        <RouterLink to="/login">登录</RouterLink>
+        <RouterLink v-if="showLoginNav" to="/login">登录</RouterLink>
         <RouterLink to="/profile"><UserRoundPen :size="16" />企业画像</RouterLink>
         <RouterLink to="/results"><FileText :size="16" />匹配和报告</RouterLink>
       </nav>

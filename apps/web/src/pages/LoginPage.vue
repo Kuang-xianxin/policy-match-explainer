@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { Eye, EyeOff, LogIn, Save, ShieldCheck } from 'lucide-vue-next';
 import { appState, login, register } from '../state/app-state';
+import { authAiStatusCopy, authModeMeta, type AuthMode } from '../utils/auth-page-copy';
 import { passwordInputType, passwordToggleLabel } from '../utils/password-visibility';
 
 const router = useRouter();
@@ -10,50 +11,76 @@ const email = ref('demo@example.com');
 const password = ref('secret123');
 const displayName = ref('演示用户');
 const errorText = ref('');
+const authMode = ref<AuthMode>('login');
 const isPasswordVisible = ref(false);
 const passwordType = computed(() => passwordInputType(isPasswordVisible.value));
 const passwordVisibilityLabel = computed(() => passwordToggleLabel(isPasswordVisible.value));
+const currentMode = computed(() => authModeMeta(authMode.value));
+const aiStatusCopy = computed(() => authAiStatusCopy(appState.aiStatus));
 
 function togglePasswordVisibility() {
   isPasswordVisible.value = !isPasswordVisible.value;
 }
 
-async function submitLogin() {
+function setAuthMode(mode: AuthMode) {
+  authMode.value = mode;
   errorText.value = '';
-  try {
-    await login(email.value, password.value);
-    await router.push('/profile');
-  } catch (error) {
-    errorText.value = error instanceof Error ? error.message : '登录失败';
-  }
 }
 
-async function submitRegister() {
+async function submitAuth() {
   errorText.value = '';
   try {
-    await register(email.value, password.value, displayName.value);
+    if (authMode.value === 'register') {
+      await register(email.value, password.value, displayName.value);
+    } else {
+      await login(email.value, password.value);
+    }
     await router.push('/profile');
   } catch (error) {
-    errorText.value = error instanceof Error ? error.message : '注册失败';
+    errorText.value = error instanceof Error ? error.message : `${currentMode.value.submitText}失败`;
   }
 }
 </script>
 
 <template>
   <section class="page login-page">
-    <div class="page-heading">
-      <ShieldCheck :size="30" />
+    <div class="auth-hero">
+      <ShieldCheck :size="34" />
       <div>
-        <h1>登录</h1>
-        <p>每个用户只能查看自己的企业画像、匹配结果和报告。</p>
+        <h1>龙华区惠企政策匹配</h1>
+        <p>登录后可以保存企业画像、查看匹配结果，并生成面向申报准备的评估报告。</p>
       </div>
     </div>
 
-    <div class="auth-panel">
+    <form class="auth-panel" @submit.prevent="submitAuth">
+      <div class="auth-panel-heading">
+        <div>
+          <h2>{{ currentMode.title }}</h2>
+          <p>{{ authMode === 'login' ? '继续查看你的企业画像和政策匹配记录。' : '创建账号后，每个用户只会看到自己的企业数据。' }}</p>
+        </div>
+        <div class="auth-mode-switch" aria-label="登录注册切换">
+          <button
+            class="auth-mode-button"
+            :class="{ 'auth-mode-button-active': authMode === 'login' }"
+            type="button"
+            @click="setAuthMode('login')"
+          >
+            登录
+          </button>
+          <button
+            class="auth-mode-button"
+            :class="{ 'auth-mode-button-active': authMode === 'register' }"
+            type="button"
+            @click="setAuthMode('register')"
+          >
+            注册
+          </button>
+        </div>
+      </div>
       <label>邮箱<input v-model="email" autocomplete="email" /></label>
       <label>密码
         <div class="password-input-wrap">
-          <input v-model="password" :type="passwordType" autocomplete="current-password" />
+          <input v-model="password" :type="passwordType" :autocomplete="currentMode.passwordAutocomplete" />
           <button
             class="password-toggle-button"
             type="button"
@@ -66,19 +93,22 @@ async function submitRegister() {
           </button>
         </div>
       </label>
-      <label>显示名<input v-model="displayName" /></label>
+      <label v-if="currentMode.showDisplayName">显示名<input v-model="displayName" autocomplete="name" /></label>
 
       <div class="button-row">
-        <button @click="submitLogin"><LogIn :size="16" />登录</button>
-        <button @click="submitRegister"><Save :size="16" />注册</button>
+        <button class="auth-submit-button" type="submit">
+          <Save v-if="authMode === 'register'" :size="16" />
+          <LogIn v-else :size="16" />
+          {{ currentMode.submitText }}
+        </button>
       </div>
       <p v-if="errorText" class="error-text">{{ errorText }}</p>
-    </div>
+    </form>
 
-    <div class="note-panel">
-      <strong>DeepSeek 状态</strong>
-      <span>{{ appState.aiStatus?.configured ? '已配置 API Key' : '未配置 API Key，当前使用 mock 开发模式' }}</span>
-      <small>真实 key 请填入本地 `.env` 的 `DEEPSEEK_API_KEY=`，不要提交到仓库。</small>
+    <div class="auth-status-panel">
+      <span class="mode-pill">AI 服务</span>
+      <strong>{{ aiStatusCopy.status }}</strong>
+      <p>{{ aiStatusCopy.description }}</p>
     </div>
   </section>
 </template>
