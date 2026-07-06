@@ -116,6 +116,18 @@ function booleanValue(value: unknown): boolean {
   return value === true;
 }
 
+function normalizeCreditCodeForSave(creditCode: string): string {
+  return creditCode.trim().toUpperCase();
+}
+
+function normalizeProfileForSave(profile: EnterpriseProfile): EnterpriseProfile {
+  return {
+    ...profile,
+    company_name: profile.company_name.trim(),
+    credit_code: normalizeCreditCodeForSave(profile.credit_code)
+  };
+}
+
 function inferProjectDirection(raw: Partial<DemoCompanyPayload>): EnterpriseProfile['project_direction'] {
   const text = `${raw.industry ?? ''} ${raw.business_scope ?? ''}`;
   if (text.includes('智能制造') || text.includes('装备')) return '智能制造';
@@ -288,7 +300,7 @@ function parseProfileSavePayload(body: unknown): {
   verificationStatus: string;
 } {
   const candidate = body && typeof body === 'object' && 'profile' in body ? (body as { profile?: unknown }) : null;
-  const profile = enterpriseProfileSchema.parse(candidate?.profile ?? body);
+  const profile = normalizeProfileForSave(enterpriseProfileSchema.parse(candidate?.profile ?? body));
   const rawFieldSources = candidate ? (body as { field_sources?: unknown }).field_sources : [];
   const fieldSources = cleanFieldSources(rawFieldSources, 'manual_profile_input', false);
   const sourceType = sourceTypeFromFieldSources(fieldSources);
@@ -597,11 +609,38 @@ export function createApp() {
 
   app.post('/api/enterprise-profiles', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
     const { profile, fieldSources, sourceType, verificationStatus } = parseProfileSavePayload(req.body);
-    const created = await pool.query(
+    const saved = await pool.query(
       `
-      INSERT INTO enterprise_profiles (user_id, company_name, credit_code, profile, field_sources, source_type, verification_status)
-      VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
-      RETURNING *
+      WITH existing_profile AS (
+        SELECT id
+        FROM enterprise_profiles
+        WHERE user_id = $1 AND upper(trim(credit_code)) = $3
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      ),
+      updated_profile AS (
+        UPDATE enterprise_profiles
+        SET company_name = $2,
+            credit_code = $3,
+            profile = $4::jsonb,
+            field_sources = $5::jsonb,
+            source_type = $6,
+            verification_status = $7,
+            updated_at = now()
+        WHERE id = (SELECT id FROM existing_profile)
+        RETURNING *, false AS was_created
+      ),
+      inserted_profile AS (
+        INSERT INTO enterprise_profiles (
+          user_id, company_name, credit_code, profile, field_sources, source_type, verification_status
+        )
+        SELECT $1, $2, $3, $4::jsonb, $5::jsonb, $6, $7
+        WHERE NOT EXISTS (SELECT 1 FROM updated_profile)
+        RETURNING *, true AS was_created
+      )
+      SELECT * FROM updated_profile
+      UNION ALL
+      SELECT * FROM inserted_profile
       `,
       [
         req.user.id,
@@ -613,13 +652,26 @@ export function createApp() {
         verificationStatus
       ]
     );
-    res.status(201).json({ enterprise_profile: created.rows[0] });
+    const enterpriseProfile = saved.rows[0];
+    const wasCreated = Boolean(enterpriseProfile.was_created);
+    delete enterpriseProfile.was_created;
+    res.status(wasCreated ? 201 : 200).json({ enterprise_profile: enterpriseProfile });
   }));
 
   app.get('/api/enterprise-profiles', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {
-    const result = await pool.query('SELECT * FROM enterprise_profiles WHERE user_id = $1 ORDER BY created_at DESC', [
-      req.user.id
-    ]);
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM (
+        SELECT DISTINCT ON (upper(trim(credit_code))) *
+        FROM enterprise_profiles
+        WHERE user_id = $1
+        ORDER BY upper(trim(credit_code)), updated_at DESC, created_at DESC
+      ) deduped_profiles
+      ORDER BY updated_at DESC, created_at DESC
+      `,
+      [req.user.id]
+    );
     res.json({ enterprise_profiles: result.rows });
   }));
 
