@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { authAiStatusCopy, authModeMeta } from './auth-page-copy';
+import { authAiStatusCopy, authModeMeta, authTrustItems } from './auth-page-copy';
 
 describe('auth page copy', () => {
   it('keeps display name out of the login form and only shows it for registration', () => {
@@ -25,5 +25,13 @@ describe('auth page copy', () => {
     expect(notConfigured.status).toBe('演示模式');
     expect(`${configured.description} ${notConfigured.description}`).not.toContain('DEEPSEEK_API_KEY');
     expect(`${configured.description} ${notConfigured.description}`).not.toContain('.env');
+  });
+
+  it('summarizes why the auth page is trustworthy for enterprise policy matching', () => {
+    expect(authTrustItems()).toEqual([
+      expect.objectContaining({ title: '数据隔离', description: expect.stringContaining('自己的企业画像') }),
+      expect.objectContaining({ title: 'AI 辅助', description: expect.stringContaining('DeepSeek') }),
+      expect.objectContaining({ title: '报告留存', description: expect.stringContaining('匹配结果') })
+    ]);
   });
 });
