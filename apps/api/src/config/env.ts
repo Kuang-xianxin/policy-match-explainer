@@ -76,6 +76,7 @@ export const env = {
   deepseekModel: process.env.DEEPSEEK_MODEL ?? 'deepseek-v4-flash',
   deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
   deepseekTimeoutMs: Number(process.env.DEEPSEEK_TIMEOUT_MS ?? 15000),
+  matchReviewPolicyLimit: Number(process.env.MATCH_REVIEW_POLICY_LIMIT ?? 20),
   doubaoApiKey: doubaoApiKey.value,
   doubaoApiKeySource: doubaoApiKey.source,
   doubaoModel: normalizeDoubaoModel(process.env.DOUBAO_MODEL),

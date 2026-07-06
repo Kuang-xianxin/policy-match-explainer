@@ -26,6 +26,7 @@ import {
   type CompanyResearchPayload
 } from './services/company-research.js';
 import { createSession, hashPassword, hashToken, requireAuth, verifyPassword, type AuthenticatedRequest } from './services/auth.js';
+import { selectPolicyReviewCandidates } from './services/policy-match-selection.js';
 
 function asyncHandler<T extends Request>(handler: (req: T, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -757,10 +758,14 @@ export function createApp() {
     const policiesResult = await pool.query(
       'SELECT id, title, category, source_url, status, policy_text, rules FROM policies WHERE jsonb_array_length(rules) > 0 ORDER BY title'
     );
+    const policyCandidates = (policiesResult.rows as Policy[]).map((policy) => ({
+      policy,
+      baseline: evaluatePolicy(profile, policy)
+    }));
+    const selectedCandidates = selectPolicyReviewCandidates(policyCandidates, env.matchReviewPolicyLimit);
     const results = [];
 
-    for (const policy of policiesResult.rows as Policy[]) {
-      const baseline = evaluatePolicy(profile, policy);
+    for (const { policy, baseline } of selectedCandidates) {
       const aiReview = await reviewPolicyMatch(profile, policy, baseline, aiConfig());
       const hasHardFailure = baseline.hard_failures.length > 0;
       const finalScore = hasHardFailure

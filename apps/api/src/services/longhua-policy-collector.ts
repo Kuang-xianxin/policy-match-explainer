@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import https from 'node:https';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Pool } from 'pg';
+import type { PolicyRule } from '@policy-match/shared';
 
 export type LonghuaPolicyDocumentType =
   | 'policy_file'
@@ -60,6 +62,17 @@ interface Anchor {
 }
 
 const SOURCE_SITE = '龙华政府在线';
+const requestHeaders = {
+  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'user-agent': 'policy-match-explainer/0.1 (+https://github.com/Kuang-xianxin/policy-match-explainer)'
+};
+
+type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
+
+export interface FetchTextOptions {
+  fetcher?: FetchLike;
+  legacyTlsFetcher?: (url: string) => Promise<string>;
+}
 
 export const defaultLonghuaPolicySources: PolicySourceConfig[] = [
   {
@@ -217,6 +230,75 @@ function extractAnchors(html: string): Anchor[] {
   return anchors;
 }
 
+function decodeJavascriptString(value: string): string {
+  return normalizeWhitespace(
+    value
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, ' ')
+      .replace(/\\r/g, ' ')
+      .replace(/\\t/g, ' ')
+      .replace(/\\\\/g, '\\')
+  );
+}
+
+function extractRecordField(record: string, fieldName: string): string | undefined {
+  const pattern = new RegExp(`['"]${fieldName}['"]\\s*:\\s*['"]((?:\\\\.|[^'"])*)['"]`, 'u');
+  const value = record.match(pattern)?.[1];
+  return value ? decodeJavascriptString(value) : undefined;
+}
+
+function extractRecordNumberField(record: string, fieldName: string): number | undefined {
+  const pattern = new RegExp(`['"]${fieldName}['"]\\s*:\\s*(\\d{10,13})`, 'u');
+  const value = record.match(pattern)?.[1];
+  return value ? Number(value) : undefined;
+}
+
+function dateFromChinaTimestamp(value: number): string | undefined {
+  if (!Number.isFinite(value)) return undefined;
+  const milliseconds = value < 10_000_000_000 ? value * 1000 : value;
+  return new Date(milliseconds + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function extractEmbeddedPolicyRecords(
+  html: string,
+  listUrl: string,
+  source: PolicySourceConfig
+): CollectedPolicyListItem[] {
+  const items: CollectedPolicyListItem[] = [];
+  const recordPattern = /\{[\s\S]*?['"]url['"]\s*:\s*['"]([^'"]*\/content\/post_[^'"]+)['"][\s\S]*?\}/giu;
+
+  for (const match of html.matchAll(recordPattern)) {
+    const sourceUrl = resolveLink(decodeJavascriptString(match[1] ?? ''), listUrl);
+    if (!sourceUrl || !sourceUrl.includes('szlhq.gov.cn') || !isDetailUrl(sourceUrl)) continue;
+
+    const record = match[0];
+    const rawTitle = extractRecordField(record, 'title') ?? extractRecordField(record, 'content') ?? '';
+    const { title, publishDate: titleDate } = stripDateFromTitle(rawTitle);
+    if (isNavigationTitle(title)) continue;
+
+    const publishTimeText = extractRecordField(record, 'display_publish_time');
+    const publishDate =
+      publishTimeText?.match(/20\d{2}-\d{2}-\d{2}/)?.[0] ??
+      dateFromChinaTimestamp(extractRecordNumberField(record, 'display_publish_time') ?? Number.NaN) ??
+      titleDate;
+    const sourceDepartment =
+      extractRecordField(record, 'source') ?? extractRecordField(record, 'EXT_fbjg') ?? source.sourceDepartment;
+
+    items.push({
+      title,
+      sourceUrl,
+      listUrl,
+      documentType: classifyDocumentType(title, source.documentType),
+      sourceSite: SOURCE_SITE,
+      sourceDepartment,
+      publishDate
+    });
+  }
+
+  return items;
+}
+
 function resolveLink(href: string, baseUrl: string): string | null {
   if (/^(javascript|mailto|tel):/i.test(href)) return null;
   try {
@@ -269,6 +351,12 @@ export function parseListPage(html: string, listUrl: string, source: PolicySourc
       publishDate
     });
     seen.add(sourceUrl);
+  }
+
+  for (const item of extractEmbeddedPolicyRecords(html, listUrl, source)) {
+    if (seen.has(item.sourceUrl)) continue;
+    items.push(item);
+    seen.add(item.sourceUrl);
   }
 
   return items;
@@ -329,15 +417,76 @@ export function parseDetailPage(html: string, item: CollectedPolicyListItem): Co
   };
 }
 
-async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url, {
-    headers: {
-      accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'user-agent': 'policy-match-explainer/0.1 (+https://github.com/Kuang-xianxin/policy-match-explainer)'
-    }
+function shouldRetryWithLegacyTls(url: string, error: unknown): boolean {
+  const cause = error instanceof Error ? error.cause : undefined;
+  const code = typeof cause === 'object' && cause !== null && 'code' in cause ? String(cause.code) : '';
+  const message = `${error instanceof Error ? error.message : String(error)} ${
+    cause instanceof Error ? cause.message : typeof cause === 'object' && cause !== null && 'message' in cause ? String(cause.message) : ''
+  }`;
+  const normalizedMessage = message.toLowerCase();
+  return (
+    code === 'ERR_SSL_BAD_ECPOINT' ||
+    normalizedMessage.includes('bad ecpoint') ||
+    (url.includes('szlhq.gov.cn') && normalizedMessage.includes('fetch failed'))
+  );
+}
+
+function fetchTextWithLegacyTls(url: string, redirectCount = 0): Promise<string> {
+  if (redirectCount > 5) return Promise.reject(new Error(`Too many redirects while fetching ${url}`));
+
+  return new Promise((resolve, reject) => {
+    const request = https.request(
+      url,
+      {
+        method: 'GET',
+        headers: requestHeaders,
+        ecdhCurve: 'prime256v1',
+        minVersion: 'TLSv1.2',
+        maxVersion: 'TLSv1.2',
+        timeout: 30000
+      },
+      (response) => {
+        const statusCode = response.statusCode ?? 0;
+        const location = response.headers.location;
+
+        if (statusCode >= 300 && statusCode < 400 && location) {
+          response.resume();
+          fetchTextWithLegacyTls(new URL(location, url).toString(), redirectCount + 1).then(resolve, reject);
+          return;
+        }
+
+        if (statusCode < 200 || statusCode >= 300) {
+          response.resume();
+          reject(new Error(`HTTP ${statusCode} while fetching ${url}`));
+          return;
+        }
+
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk: string) => {
+          body += chunk;
+        });
+        response.on('end', () => resolve(body));
+      }
+    );
+
+    request.on('timeout', () => {
+      request.destroy(new Error(`Request timed out while fetching ${url}`));
+    });
+    request.on('error', reject);
+    request.end();
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-  return response.text();
+}
+
+export async function fetchText(url: string, options: FetchTextOptions = {}): Promise<string> {
+  try {
+    const response = await (options.fetcher ?? fetch)(url, { headers: requestHeaders });
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    return response.text();
+  } catch (error) {
+    if (!shouldRetryWithLegacyTls(url, error)) throw error;
+    return (options.legacyTlsFetcher ?? fetchTextWithLegacyTls)(url);
+  }
 }
 
 function fallbackDocument(item: CollectedPolicyListItem, error: unknown): CollectedPolicyDocument {
@@ -428,6 +577,184 @@ function shouldSyncPolicy(document: CollectedPolicyDocument): boolean {
   return hasEnterprisePolicyKeyword(`${document.title} ${document.contentText}`);
 }
 
+function pushRule(rules: PolicyRule[], rule: PolicyRule): void {
+  const duplicated = rules.some(
+    (item) =>
+      item.field_key === rule.field_key &&
+      item.operator === rule.operator &&
+      JSON.stringify(item.expected_value) === JSON.stringify(rule.expected_value)
+  );
+  if (!duplicated) rules.push(rule);
+}
+
+export function derivePolicyRules(document: CollectedPolicyDocument): PolicyRule[] {
+  const text = `${document.title} ${document.contentText}`;
+  const rules: PolicyRule[] = [];
+
+  pushRule(rules, {
+    field_key: 'district',
+    operator: 'equals',
+    expected_value: '龙华区',
+    weight: 18,
+    required: true,
+    evidence_text: '政策来源为龙华区公开政策或申报公告，申报主体应属于龙华区。'
+  });
+
+  pushRule(rules, {
+    field_key: 'has_major_violation',
+    operator: 'is_false',
+    expected_value: false,
+    weight: 14,
+    required: true,
+    evidence_text: '惠企政策通常要求申报主体无重大违法违规记录。'
+  });
+
+  if (/专精特新/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'has_specialized_new_sme',
+      operator: 'is_true',
+      expected_value: true,
+      weight: 24,
+      required: /专精特新.*(奖励|资助|申报|项目|企业)/u.test(text),
+      evidence_text: '政策文本涉及专精特新企业或相关资助方向。'
+    });
+  }
+
+  if (/高新技术/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'is_high_tech_enterprise',
+      operator: 'is_true',
+      expected_value: true,
+      weight: 18,
+      required: false,
+      evidence_text: '政策文本涉及高新技术企业或科技创新资质。'
+    });
+  }
+
+  if (/科技型中小|中小企业|小微企业/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'is_tech_sme',
+      operator: 'is_true',
+      expected_value: true,
+      weight: 14,
+      required: false,
+      evidence_text: '政策文本涉及科技型中小企业、中小企业或小微企业。'
+    });
+  }
+
+  if (/研发|创新|科技|孵化器|众创空间|协同创新/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'rd_expense_ratio',
+      operator: 'gte',
+      expected_value: 5,
+      weight: 14,
+      required: false,
+      evidence_text: '政策文本涉及研发投入、科技创新或创新载体建设。'
+    });
+  }
+
+  if (/数字化|智能制造|人工智能|AI|数据|上云|上平台|工业互联网|软件|信息技术/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'project_direction',
+      operator: 'in',
+      expected_value: ['AI', '数据治理', '智能制造', '数字化转型'],
+      weight: 18,
+      required: false,
+      evidence_text: '政策文本涉及数字化、智能制造、数据或软件信息技术方向。'
+    });
+  }
+
+  if (/制造|工业|工信|产业链|传感器|装备|低空经济/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'industry',
+      operator: 'contains',
+      expected_value: '制造',
+      weight: 12,
+      required: false,
+      evidence_text: '政策文本涉及工业制造、装备、传感器或产业链方向。'
+    });
+  }
+
+  if (/软件|信息技术|数据|人工智能|数字经济/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'industry',
+      operator: 'contains',
+      expected_value: '软件',
+      weight: 12,
+      required: false,
+      evidence_text: '政策文本涉及软件、信息技术、数据或数字经济方向。'
+    });
+  }
+
+  if (/文化|旅游|文旅|时尚|体育/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'industry',
+      operator: 'contains',
+      expected_value: '文旅',
+      weight: 12,
+      required: false,
+      evidence_text: '政策文本涉及文化、旅游、体育或现代时尚产业。'
+    });
+  }
+
+  if (/商贸|消费|零售|餐饮|服务业/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'industry',
+      operator: 'contains',
+      expected_value: '服务',
+      weight: 12,
+      required: false,
+      evidence_text: '政策文本涉及商贸、消费、零售、餐饮或服务业。'
+    });
+  }
+
+  if (/上市|挂牌|融资|资本市场/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'listed_status',
+      operator: 'in',
+      expected_value: ['listed', 'new_third_board', 'pre_listing'],
+      weight: 16,
+      required: false,
+      evidence_text: '政策文本涉及上市培育、挂牌、融资或资本市场服务。'
+    });
+  }
+
+  if (/营收|营业收入|销售额|产值|规模以上|规上/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'revenue_last_year',
+      operator: 'gte',
+      expected_value: 1000000,
+      weight: 12,
+      required: false,
+      evidence_text: '政策文本涉及营收、销售额、产值或规模以上企业基础。'
+    });
+  }
+
+  if (/纳税|税务|信用/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'tax_credit_level',
+      operator: 'in',
+      expected_value: ['A', 'B', 'M'],
+      weight: 10,
+      required: false,
+      evidence_text: '政策文本涉及纳税、税务信用或信用状况。'
+    });
+  }
+
+  if (/项目|建设|改造|投入|资助|补贴|扶持/u.test(text)) {
+    pushRule(rules, {
+      field_key: 'project_budget',
+      operator: 'gte',
+      expected_value: 100000,
+      weight: 10,
+      required: false,
+      evidence_text: '政策文本涉及项目建设、改造投入、资助或补贴。'
+    });
+  }
+
+  return rules;
+}
+
 async function upsertSourceDocument(queryable: Queryable, document: CollectedPolicyDocument): Promise<{ id: string; inserted: boolean }> {
   const existing = await queryable.query('SELECT id FROM source_documents WHERE source_url = $1', [document.sourceUrl]);
   const contentHash = contentHashFor(document);
@@ -494,19 +821,30 @@ async function upsertSourceDocument(queryable: Queryable, document: CollectedPol
 }
 
 async function upsertPolicy(queryable: Queryable, sourceDocumentId: string, document: CollectedPolicyDocument): Promise<void> {
+  const rules = derivePolicyRules(document);
+  const rawPayload = {
+    ...document.rawPayload,
+    rules_generated_by: 'keyword_heuristic_v1'
+  };
+
   await queryable.query(
     `
     INSERT INTO policies (
       source_document_id, title, category, source_url, status, policy_text, rules,
       publish_date, source_department, document_type, raw_payload
     )
-    VALUES ($1, $2, $3, $4, $5, $6, '[]'::jsonb, $7, $8, $9, $10::jsonb)
+    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11::jsonb)
     ON CONFLICT (title) DO UPDATE SET
       source_document_id = EXCLUDED.source_document_id,
       category = EXCLUDED.category,
       source_url = EXCLUDED.source_url,
       status = EXCLUDED.status,
       policy_text = EXCLUDED.policy_text,
+      rules = CASE
+        WHEN jsonb_array_length(policies.rules) = 0 OR policies.raw_payload->>'rules_generated_by' = 'keyword_heuristic_v1'
+        THEN EXCLUDED.rules
+        ELSE policies.rules
+      END,
       publish_date = EXCLUDED.publish_date,
       source_department = EXCLUDED.source_department,
       document_type = EXCLUDED.document_type,
@@ -519,10 +857,11 @@ async function upsertPolicy(queryable: Queryable, sourceDocumentId: string, docu
       document.sourceUrl,
       statusFor(document),
       document.contentText,
+      JSON.stringify(rules),
       document.publishDate ?? null,
       document.sourceDepartment ?? null,
       document.documentType,
-      JSON.stringify(document.rawPayload)
+      JSON.stringify(rawPayload)
     ]
   );
 }

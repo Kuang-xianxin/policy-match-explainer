@@ -143,7 +143,7 @@ describe('longhua policy collector', () => {
     const sourceCount = await pool.query('SELECT count(*)::int AS count FROM source_documents');
     const policyCount = await pool.query('SELECT count(*)::int AS count FROM policies');
     const policy = await pool.query(
-      'SELECT title, category, document_type, source_department, publish_date::text AS publish_date FROM policies WHERE title = $1',
+      'SELECT title, category, document_type, source_department, publish_date::text AS publish_date, jsonb_array_length(rules)::int AS rule_count FROM policies WHERE title = $1',
       ['深圳市龙华区科技创新专项资金申报指南']
     );
 
@@ -154,8 +154,10 @@ describe('longhua policy collector', () => {
       category: '科技创新',
       document_type: 'application_guide',
       source_department: '深圳市龙华区科技创新局',
-      publish_date: '2025-06-20'
+      publish_date: '2025-06-20',
+      rule_count: expect.any(Number)
     });
+    expect(policy.rows[0].rule_count).toBeGreaterThan(0);
   });
 
   it('collects public list pages with an injected fetcher before writing to PostgreSQL', async () => {
