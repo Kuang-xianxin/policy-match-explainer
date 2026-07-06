@@ -31,6 +31,7 @@
 - Matching and report writing should keep the current split: deterministic rule baseline first, DeepSeek semantic review/report second, Doubao联网搜索 only for enterprise profile evidence retrieval unless a future requirement proves web search is needed in policy review.
 - The profile edit page should expose required and optional fields directly. Do not hide optional fields behind an advanced-editor-only interaction; the user should see required fields first, then range/qualification fields, then optional evidence fields.
 - Long-running user operations must show an expected time range and visible progress. This applies to candidate company search, smart profile generation plus matching, and saved-profile policy matching.
+- Report generation must have a prominent call-to-action and an obvious completion notice. After a report is generated, the UI should clearly tell the user where the report appeared.
 - Saved enterprise profiles are user-scoped and de-duplicated by normalized unified social credit code. Saving the same company again should update the user's latest profile for that credit code instead of creating another visible saved-profile row. Existing historical duplicate rows should be hidden from the saved-profile list by returning only the newest row per credit code.
 - Any future Longhua enterprise registry must be a separate optional local searchable index/cache built from authorized providers, not an unauthorized copied full registry or a crawler that bypasses public query restrictions.
 

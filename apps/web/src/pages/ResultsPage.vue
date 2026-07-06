@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { FileText, RefreshCcw } from 'lucide-vue-next';
+import { computed, nextTick, onMounted, ref } from 'vue';
+import { CheckCircle2, FileText, RefreshCcw } from 'lucide-vue-next';
 import { appState, generateReport, loadLatestMatchRun } from '../state/app-state';
 import { profileFieldLabel, replaceProfileFieldKeys } from '../utils/profile-field-labels';
+import { reportActionText, reportNotice, type ReportNoticeState } from '../utils/report-feedback';
 
 const sortedResults = computed(() =>
   [...appState.matchResults].sort((a, b) => Number(b.final_score) - Number(a.final_score))
@@ -15,6 +16,10 @@ const isInferredRun = computed(() =>
 const isLoading = ref(false);
 const isGeneratingReport = ref(false);
 const errorText = ref('');
+const reportNoticeState = ref<ReportNoticeState>('idle');
+const reportSection = ref<HTMLElement | null>(null);
+const currentReportNotice = computed(() => reportNotice(reportNoticeState.value));
+const reportButtonText = computed(() => reportActionText(isGeneratingReport.value));
 
 function levelLabel(level: string): string {
   const labels: Record<string, string> = {
@@ -58,10 +63,15 @@ async function doGenerateReport() {
   if (!appState.matchRun || isGeneratingReport.value) return;
   isGeneratingReport.value = true;
   errorText.value = '';
+  reportNoticeState.value = 'generating';
   try {
     await generateReport();
+    reportNoticeState.value = 'completed';
+    await nextTick();
+    reportSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '生成报告失败';
+    reportNoticeState.value = 'idle';
   } finally {
     isGeneratingReport.value = false;
   }
@@ -75,12 +85,39 @@ async function doGenerateReport() {
         <h1>匹配结果和报告</h1>
         <p>匹配先生成规则基线，再通过 {{ reviewMode === 'deepseek' ? 'DeepSeek API' : 'mock 开发模式' }} 做语义复核和说明增强。</p>
       </div>
-      <button :disabled="!appState.matchRun || isGeneratingReport" @click="doGenerateReport">
-        <FileText :size="16" />{{ isGeneratingReport ? '生成中' : '生成报告' }}
+      <button class="outline-button" :disabled="!appState.matchRun || isGeneratingReport" @click="doGenerateReport">
+        <FileText :size="16" />{{ reportButtonText }}
       </button>
     </div>
 
     <p v-if="errorText" class="error-text">{{ errorText }}</p>
+    <section v-if="appState.matchRun" class="report-action-panel">
+      <div>
+        <span class="mode-pill">综合报告</span>
+        <h2>生成面向用户的政策匹配建议报告</h2>
+        <p>报告会把规则命中、DeepSeek 复核、建议动作和风险提示整理成一段可直接阅读的文字。</p>
+      </div>
+      <button class="report-primary-button" :disabled="isGeneratingReport" @click="doGenerateReport">
+        <RefreshCcw v-if="isGeneratingReport" :size="18" />
+        <FileText v-else :size="18" />
+        {{ reportButtonText }}
+      </button>
+    </section>
+
+    <div
+      v-if="currentReportNotice"
+      class="report-notice"
+      :class="`report-notice-${currentReportNotice.tone}`"
+      role="status"
+      aria-live="polite"
+    >
+      <CheckCircle2 :size="22" />
+      <div>
+        <strong>{{ currentReportNotice.title }}</strong>
+        <p>{{ currentReportNotice.message }}</p>
+      </div>
+    </div>
+
     <div v-if="isInferredRun" class="warning-panel">
       本次匹配基于未验证 AI 画像草稿，最终等级已按试算处理。正式申报前请先核对企业名称、统一社会信用代码、经营地址和资质状态。
     </div>
@@ -181,9 +218,12 @@ async function doGenerateReport() {
       </article>
     </section>
 
-    <section class="panel">
+    <section ref="reportSection" class="panel report-panel" :class="{ 'report-panel-ready': appState.report }">
       <div class="section-title">
-        <h2>综合报告</h2>
+        <div>
+          <h2>综合报告</h2>
+          <p class="hint">报告生成后会在这里显示，并保留在当前匹配结果中。</p>
+        </div>
         <span class="mode-pill">{{ appState.report?.model_name || (appState.aiStatus?.configured ? appState.aiStatus.model : 'mock') }}</span>
       </div>
       <pre v-if="appState.report">{{ appState.report.content_text }}</pre>
