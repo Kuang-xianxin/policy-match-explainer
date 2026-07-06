@@ -50,6 +50,7 @@ export interface UpsertCollectedDocumentsStats {
   sourceDocumentsUpdated: number;
   policiesUpserted: number;
   skippedPolicies: number;
+  policiesDemoted: number;
 }
 
 interface Queryable {
@@ -163,6 +164,42 @@ const enterprisePolicyKeywords = [
 ];
 
 const applicationGuideKeywords = ['申报指南', '申请指南', '申报', '申请', '受理', '备案', '认定', '补贴', '资助', '奖励'];
+const nonMatchableNoticeKeywords = [
+  '中标公告',
+  '招标公告',
+  '采购公告',
+  '采购需求',
+  '施工招标',
+  '施工中标',
+  '工程施工',
+  '遗失公告',
+  '送达公告',
+  '行政处罚',
+  '听证公告',
+  '注销',
+  '拟补贴名单',
+  '拟资助名单',
+  '拟发放',
+  '初审结果',
+  '名单公示',
+  '符合发放条件名单',
+  '执法证'
+];
+const policyDocumentSignals = [
+  '申报指南',
+  '申请指南',
+  '申报通知',
+  '申请通知',
+  '开展',
+  '受理',
+  '政策',
+  '措施',
+  '办法',
+  '实施方案',
+  '工作方案',
+  '管理办法',
+  '若干措施'
+];
 
 function decodeHtmlEntities(value: string): string {
   return value
@@ -572,9 +609,20 @@ function categoryFor(document: CollectedPolicyDocument): string {
   return '其他';
 }
 
-function shouldSyncPolicy(document: CollectedPolicyDocument): boolean {
+function isOperationalNotice(title: string): boolean {
+  const hasPolicySignal = policyDocumentSignals.some((keyword) => title.includes(keyword));
+  if (hasPolicySignal && !/名单|中标|招标|采购|注销|处罚|听证/u.test(title)) return false;
+  return nonMatchableNoticeKeywords.some((keyword) => title.includes(keyword));
+}
+
+export function isMatchablePolicyDocument(document: CollectedPolicyDocument): boolean {
   if (document.documentType === 'policy_interpretation') return false;
+  if (isOperationalNotice(document.title)) return false;
   return hasEnterprisePolicyKeyword(`${document.title} ${document.contentText}`);
+}
+
+function shouldSyncPolicy(document: CollectedPolicyDocument): boolean {
+  return isMatchablePolicyDocument(document);
 }
 
 function pushRule(rules: PolicyRule[], rule: PolicyRule): void {
@@ -866,6 +914,21 @@ async function upsertPolicy(queryable: Queryable, sourceDocumentId: string, docu
   );
 }
 
+async function clearGeneratedPolicyRules(queryable: Queryable, document: CollectedPolicyDocument): Promise<number> {
+  const result = await queryable.query(
+    `
+    UPDATE policies
+    SET rules = '[]'::jsonb,
+        raw_payload = jsonb_set(raw_payload, '{rules_demoted_by}', '"matchable_filter_v1"', true)
+    WHERE source_url = $1
+      AND raw_payload->>'rules_generated_by' = 'keyword_heuristic_v1'
+      AND jsonb_array_length(rules) > 0
+    `,
+    [document.sourceUrl]
+  );
+  return result.rowCount ?? 0;
+}
+
 export async function upsertCollectedDocuments(
   queryable: Queryable,
   documents: CollectedPolicyDocument[]
@@ -874,7 +937,8 @@ export async function upsertCollectedDocuments(
     sourceDocumentsInserted: 0,
     sourceDocumentsUpdated: 0,
     policiesUpserted: 0,
-    skippedPolicies: 0
+    skippedPolicies: 0,
+    policiesDemoted: 0
   };
 
   for (const document of documents) {
@@ -887,6 +951,7 @@ export async function upsertCollectedDocuments(
       stats.policiesUpserted += 1;
     } else {
       stats.skippedPolicies += 1;
+      stats.policiesDemoted += await clearGeneratedPolicyRules(queryable, document);
     }
   }
 

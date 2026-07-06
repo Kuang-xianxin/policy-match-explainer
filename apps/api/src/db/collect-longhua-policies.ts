@@ -55,7 +55,8 @@ async function run(): Promise<void> {
       `source_documents inserted=${stats.sourceDocumentsInserted}`,
       `updated=${stats.sourceDocumentsUpdated}`,
       `policies upserted=${stats.policiesUpserted}`,
-      `non-matchable skipped=${stats.skippedPolicies}`
+      `non-matchable skipped=${stats.skippedPolicies}`,
+      `generated rules demoted=${stats.policiesDemoted}`
     ].join(', ')
   );
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   derivePolicyRules,
   fetchText,
+  isMatchablePolicyDocument,
   parseListPage,
   type CollectedPolicyDocument,
   type PolicySourceConfig
@@ -68,6 +69,36 @@ describe('longhua policy collector pure behavior', () => {
         expect.objectContaining({ field_key: 'rd_expense_ratio', operator: 'gte' })
       ])
     );
+  });
+
+  it('keeps result notices and procurement notices out of matchable policy rules', () => {
+    expect(
+      isMatchablePolicyDocument(
+        documentFixture({
+          title: '章阁重点企业周边环境提升工程施工中标公告',
+          documentType: 'department_notice',
+          contentText: '章阁重点企业周边环境提升工程施工中标结果公告。'
+        })
+      )
+    ).toBe(false);
+    expect(
+      isMatchablePolicyDocument(
+        documentFixture({
+          title: '龙华区2026年科技创新专项资金拟资助名单公示',
+          documentType: 'department_notice',
+          contentText: '现将拟资助名单予以公示。'
+        })
+      )
+    ).toBe(false);
+    expect(
+      isMatchablePolicyDocument(
+        documentFixture({
+          title: '深圳市龙华区科技创新局关于开展科技创新专项资金申报的通知',
+          documentType: 'department_notice',
+          contentText: '支持龙华区企业申报科技创新专项资金。'
+        })
+      )
+    ).toBe(true);
   });
 
   it('extracts policy-file records embedded in the Longhua policy library page script', () => {
