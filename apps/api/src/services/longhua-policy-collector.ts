@@ -182,6 +182,7 @@ const nonMatchableNoticeKeywords = [
   '拟发放',
   '初审结果',
   '名单公示',
+  '公示',
   '符合发放条件名单',
   '执法证'
 ];
@@ -611,7 +612,7 @@ function categoryFor(document: CollectedPolicyDocument): string {
 
 function isOperationalNotice(title: string): boolean {
   const hasPolicySignal = policyDocumentSignals.some((keyword) => title.includes(keyword));
-  if (hasPolicySignal && !/名单|中标|招标|采购|注销|处罚|听证/u.test(title)) return false;
+  if (hasPolicySignal && !/名单|中标|招标|采购|注销|处罚|听证|公示/u.test(title)) return false;
   return nonMatchableNoticeKeywords.some((keyword) => title.includes(keyword));
 }
 

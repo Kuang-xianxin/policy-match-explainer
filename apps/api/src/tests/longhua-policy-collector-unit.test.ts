@@ -93,6 +93,15 @@ describe('longhua policy collector pure behavior', () => {
     expect(
       isMatchablePolicyDocument(
         documentFixture({
+          title: '2026年龙华区非国有博物馆运行扶持拟定结果的公示',
+          documentType: 'department_notice',
+          contentText: '现将扶持拟定结果予以公示。'
+        })
+      )
+    ).toBe(false);
+    expect(
+      isMatchablePolicyDocument(
+        documentFixture({
           title: '深圳市龙华区科技创新局关于开展科技创新专项资金申报的通知',
           documentType: 'department_notice',
           contentText: '支持龙华区企业申报科技创新专项资金。'
