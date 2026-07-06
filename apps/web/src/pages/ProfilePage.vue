@@ -34,6 +34,7 @@ const errorText = ref('');
 const queryName = ref('');
 const isSearching = ref(false);
 const isGenerating = ref(false);
+const generatingLookupId = ref<string | null>(null);
 const isSaving = ref(false);
 const isMatching = ref(false);
 const isSmartMatching = ref(false);
@@ -132,7 +133,7 @@ function startMatchProgress(phase: MatchProgressPhase) {
 
 function startLookupProgress(kind: OperationProgressKind, message: string) {
   lookupProgressKind.value = kind;
-  lookupProgressPhase.value = 'planning_query';
+  lookupProgressPhase.value = kind === 'profile_generation' ? 'candidate_filtering' : 'planning_query';
   lookupProgressMessage.value = message;
   lookupProgressStartedAt.value = Date.now();
   lookupProgressElapsedSeconds.value = 0;
@@ -141,6 +142,10 @@ function startLookupProgress(kind: OperationProgressKind, message: string) {
   lookupProgressTimer = window.setInterval(() => {
     const elapsed = Math.max(0, Math.floor((Date.now() - lookupProgressStartedAt.value) / 1000));
     lookupProgressElapsedSeconds.value = elapsed;
+    if (lookupProgressKind.value === 'profile_generation') {
+      lookupProgressPhase.value = 'candidate_filtering';
+      return;
+    }
     if (elapsed >= 18) {
       lookupProgressPhase.value = 'candidate_filtering';
     } else if (elapsed >= 3) {
@@ -243,12 +248,19 @@ async function doSmartMatch() {
 
 async function doGenerate(lookupId: string) {
   errorText.value = '';
+  if (isGenerating.value) return;
   isGenerating.value = true;
+  generatingLookupId.value = lookupId;
+  startLookupProgress('profile_generation', '正在生成企业画像，预计需要 20-40 秒...');
   try {
+    updateLookupProgress('candidate_filtering', '正在根据候选企业证据生成企业画像...');
     await generateProfileFromCandidate(lookupId);
+    updateLookupProgress('candidate_filtering', '企业画像已生成，请继续确认字段。');
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '生成画像失败';
   } finally {
+    stopLookupProgressTimer();
+    generatingLookupId.value = null;
     isGenerating.value = false;
   }
 }
@@ -334,10 +346,10 @@ async function doMatch(profileId: string) {
           <input v-model="queryName" placeholder="例如：华傲数据、乐牙科技、汇川技术" @keyup.enter="doSearch" />
         </label>
         <div class="search-actions">
-          <button :disabled="isSearching || isSmartMatching" @click="doSearch">
+          <button :disabled="isSearching || isSmartMatching || isGenerating" @click="doSearch">
             <Search :size="16" />{{ isSearching ? `查询中 · ${operationEstimate('candidate_search').label}` : '查询候选' }}
           </button>
-          <button :disabled="isSearching || isSmartMatching" @click="doSmartMatch">
+          <button :disabled="isSearching || isSmartMatching || isGenerating" @click="doSmartMatch">
             <PlayCircle :size="16" />{{ isSmartMatching ? `处理中 · ${operationEstimate('smart_match').label}` : '智能生成并匹配' }}
           </button>
         </div>
@@ -424,6 +436,9 @@ async function doMatch(profileId: string) {
             <small>{{ item.credit_code }} · {{ item.business_address }}</small>
             <small>{{ item.source_name }} · 置信度 {{ Math.round((item.confidence ?? 0) * 100) }}%</small>
             <small v-if="item.source_type === 'inferred'" class="warning-text">未验证草稿，正式申报前必须核对企业主体信息</small>
+            <small v-if="generatingLookupId === item.lookup_id" class="warning-text">
+              正在生成画像 · {{ operationEstimate('profile_generation').label }}
+            </small>
           </span>
           <WandSparkles :size="18" />
         </button>

@@ -1,6 +1,6 @@
 export type MatchProgressPhase = 'saving_profile' | 'scoring_rules' | 'ai_review' | 'opening_results';
 export type LookupProgressPhase = 'planning_query' | 'web_research' | 'candidate_filtering';
-export type OperationProgressKind = 'candidate_search' | 'smart_match' | 'policy_match';
+export type OperationProgressKind = 'candidate_search' | 'profile_generation' | 'smart_match' | 'policy_match';
 
 export type MatchProgressStepStatus = 'done' | 'active' | 'pending';
 
@@ -61,6 +61,10 @@ const operationEstimates: Record<OperationProgressKind, OperationEstimate> = {
   candidate_search: {
     label: '预计 30-45 秒',
     estimatedSeconds: 45
+  },
+  profile_generation: {
+    label: '预计 20-40 秒',
+    estimatedSeconds: 40
   },
   smart_match: {
     label: '预计 60-90 秒',

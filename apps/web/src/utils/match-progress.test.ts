@@ -29,6 +29,13 @@ describe('match progress steps', () => {
     });
   });
 
+  it('exposes expected time for candidate profile generation', () => {
+    expect(operationEstimate('profile_generation')).toEqual({
+      label: '预计 20-40 秒',
+      estimatedSeconds: 40
+    });
+  });
+
   it('caps simulated progress before completion so the UI never appears stuck at 100%', () => {
     expect(progressPercent(0, 45)).toBe(8);
     expect(progressPercent(20, 45)).toBe(44);
