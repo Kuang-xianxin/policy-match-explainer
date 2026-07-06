@@ -132,7 +132,11 @@ function containsLonghua(value: string | undefined): boolean {
 }
 
 function longhuaScopeRejectionReason(payload: CompanyResearchPayload): string | null {
-  if (containsLonghua(payload.district) || containsLonghua(payload.business_address)) return null;
+  const isLonghuaRelated = containsLonghua(payload.district) || containsLonghua(payload.business_address);
+  if (isLonghuaRelated && payload.credit_code.startsWith('UNCONFIRMED-')) {
+    return '未找到可核验的统一社会信用代码，不能生成企业画像。';
+  }
+  if (isLonghuaRelated) return null;
 
   const district = payload.district?.trim();
   if (district) return `公开资料显示所在区为${district}，不属于深圳市${longhuaDistrictName}。`;
@@ -391,9 +395,32 @@ function parseJsonObject(text: string): unknown {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/u)?.[1];
   const raw = fenced ?? text;
   const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end < start) throw new Error('Doubao response did not contain a JSON object.');
-  return JSON.parse(raw.slice(start, end + 1));
+  if (start < 0) throw new Error('Doubao response did not contain a JSON object.');
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = inString;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') depth += 1;
+    if (char === '}') depth -= 1;
+    if (depth === 0) return JSON.parse(raw.slice(start, index + 1));
+  }
+
+  throw new Error('Doubao response did not contain a complete JSON object.');
 }
 
 function normalizeEvidence(value: unknown): ResearchEvidence[] {

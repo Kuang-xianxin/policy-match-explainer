@@ -240,7 +240,7 @@ async function doMatch(profileId: string) {
       <div class="section-title">
         <div>
           <h2>1. 搜索候选企业</h2>
-          <p class="hint">优先使用豆包联网搜索获取官网、政府页面、公告和年报证据；未命中或检索失败时才退回本地示例索引和待确认草稿。</p>
+          <p class="hint">优先使用豆包联网搜索获取官网、政府页面、公告和年报证据；只有核验为深圳市龙华区企业时才生成候选。</p>
         </div>
       </div>
 
@@ -260,7 +260,7 @@ async function doMatch(profileId: string) {
 
       <p v-if="errorText" class="error-text">{{ errorText }}</p>
       <div v-if="appState.scopeWarning" class="warning-panel scope-warning-panel">
-        <strong>暂不支持区外企业匹配</strong>
+        <strong>未能生成可匹配企业画像</strong>
         <p>{{ appState.scopeWarning.message }}</p>
         <ul class="scope-warning-list">
           <li
@@ -321,7 +321,7 @@ async function doMatch(profileId: string) {
         </button>
       </div>
 
-      <p v-else-if="appState.lookupPlan && !appState.scopeWarning" class="hint">没有找到候选企业。系统会提供 AI 草稿候选用于继续生成待确认画像。</p>
+      <p v-else-if="appState.lookupPlan && !appState.scopeWarning" class="hint">没有找到可核验的龙华区候选企业。</p>
     </section>
 
     <section v-if="profile" class="panel">

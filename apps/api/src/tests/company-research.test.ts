@@ -229,6 +229,95 @@ describe('company research provider', () => {
     ).resolves.toHaveLength(0);
   });
 
+  it('parses the first JSON object when Doubao appends extra JSON after the candidate payload', async () => {
+    const payload = JSON.stringify({
+      candidates: [
+        {
+          company_name: '深圳市汇川技术股份有限公司',
+          credit_code: '914403007488622263',
+          business_address: '深圳市龙华区观湖街道鹭湖社区澜清二路6号汇川技术总部大厦',
+          district: '龙华区',
+          industry: '工业自动化控制',
+          main_business: '工业自动化控制产品和新能源汽车电驱系统业务。',
+          main_revenue_source: '工业自动化和新能源汽车相关产品销售',
+          evidence: [
+            {
+              title: '汇川技术投资者关系',
+              url: 'https://www.inovance.com/investor',
+              snippet: '联系地址位于深圳市龙华区观湖街道鹭湖社区澜清二路6号。',
+              fields: ['company_name', 'business_address', 'district'],
+              confidence: 0.92
+            }
+          ],
+          confidence: 0.91
+        }
+      ]
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        output_text: `${payload}\n{"debug":"web_search_sources"}`
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const detailed = await researchCompaniesWithDoubaoDetailed('汇川技术', ['汇川技术'], {
+      apiKey: 'test-key',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3/responses',
+      model: 'doubao-seed-2-0-mini-260428',
+      timeoutMs: 1000
+    });
+
+    expect(detailed.candidates).toHaveLength(1);
+    expect(detailed.candidates[0].company_name).toBe('深圳市汇川技术股份有限公司');
+    expect(detailed.rejected_companies).toHaveLength(0);
+  });
+
+  it('rejects Longhua candidates that do not include a real unified social credit code', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        output_text: JSON.stringify({
+          candidates: [
+            {
+              company_name: '深圳市龙华区样本科技有限公司',
+              business_address: '深圳市龙华区民治街道',
+              district: '龙华区',
+              industry: '软件和信息技术服务业',
+              main_business: '软件开发。',
+              evidence: [
+                {
+                  title: '公开页面',
+                  url: 'https://example.com/longhua-sample',
+                  snippet: '地址位于深圳市龙华区。',
+                  fields: ['company_name', 'business_address', 'district'],
+                  confidence: 0.82
+                }
+              ],
+              confidence: 0.82
+            }
+          ]
+        })
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const detailed = await researchCompaniesWithDoubaoDetailed('样本科技', ['样本科技'], {
+      apiKey: 'test-key',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3/responses',
+      model: 'doubao-seed-2-0-mini-260428',
+      timeoutMs: 1000
+    });
+
+    expect(detailed.candidates).toHaveLength(0);
+    expect(detailed.rejected_companies[0]).toEqual(
+      expect.objectContaining({
+        company_name: '深圳市龙华区样本科技有限公司',
+        reason: expect.stringContaining('统一社会信用代码')
+      })
+    );
+  });
+
   it('does not coerce an out-of-scope research payload into a Longhua enterprise profile', () => {
     const outsidePayload: CompanyResearchPayload = {
       source_type: 'official_public_page',

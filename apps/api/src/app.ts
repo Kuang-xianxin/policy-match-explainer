@@ -16,7 +16,7 @@ import { extractEnterpriseProfile, generateReport, planCompanyLookup, reviewPoli
 import { evaluatePolicy, levelFromFinalScore } from '@policy-match/matcher';
 import { env } from './config/env.js';
 import { searchCuratedEnterpriseResearch } from './data/curated-enterprises.js';
-import { searchDemoCompanies, type DemoCompanyPayload } from './data/demo-companies.js';
+import type { DemoCompanyPayload } from './data/demo-companies.js';
 import { pool } from './db/pool.js';
 import {
   createProfileFromResearchPayload,
@@ -67,6 +67,13 @@ function outOfScopeWarning(rejectedCompanies: RejectedCompanyResearch[]) {
   };
 }
 
+function blockedLookupWarning(message: string, rejectedCompanies: RejectedCompanyResearch[] = []) {
+  return {
+    message,
+    rejected_companies: rejectedCompanies
+  };
+}
+
 function databaseErrorResponse(error: unknown): { code?: string; message: string } | null {
   const dbError = error as { code?: string; message?: string };
   const message = dbError.message ?? '';
@@ -107,56 +114,6 @@ function numberValue(value: unknown, fallback: number): number {
 
 function booleanValue(value: unknown): boolean {
   return value === true;
-}
-
-function simpleHash(value: string): string {
-  let hash = 0;
-  for (const char of value) {
-    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  }
-  return hash.toString(36).toUpperCase().padStart(6, '0').slice(0, 8);
-}
-
-function normalizeDraftCompanyName(queryName: string): string {
-  const cleanName = queryName.trim().replace(/\s+/g, '');
-  if (/公司|企业|厂$/u.test(cleanName)) return cleanName;
-  return `${cleanName}（待确认主体）`;
-}
-
-function candidateConfidence(queryName: string, candidate: DemoCompanyPayload): number {
-  const query = queryName.trim().toLowerCase();
-  const target = `${candidate.company_name} ${candidate.credit_code} ${candidate.industry} ${candidate.business_scope}`.toLowerCase();
-  if (candidate.company_name.toLowerCase() === query) return 0.96;
-  if (candidate.company_name.toLowerCase().includes(query)) return 0.9;
-  if (candidate.credit_code.toLowerCase() === query) return 0.95;
-  return target.includes(query) ? 0.78 : 0.68;
-}
-
-function createInferredCompanyPayload(queryName: string): DemoCompanyPayload & { source_type: 'inferred'; query_name: string } {
-  const query = queryName.trim();
-  const companyName = normalizeDraftCompanyName(query);
-  const text = `${query} ${companyName}`.toLowerCase();
-  const isManufacturing = /装备|制造|机器人|自动化/u.test(text);
-  const industry = isManufacturing ? '智能制造装备' : '软件和信息技术服务业';
-  const businessScope = isManufacturing
-    ? `${companyName}相关的智能制造、自动化设备、数字化产线和技术服务，具体经营范围待用户确认。`
-    : `${companyName}相关的软件开发、人工智能、数据治理、企业数字化服务，具体经营范围待用户确认。`;
-
-  return {
-    query_name: query,
-    source_type: 'inferred',
-    company_name: companyName,
-    credit_code: `UNCONFIRMED-${simpleHash(companyName)}`,
-    business_address: '深圳市龙华区（系统默认范围，待用户确认）',
-    registration_status: '未验证',
-    registered_year: new Date().getFullYear(),
-    registered_capital: 0,
-    industry,
-    business_scope: businessScope,
-    is_high_tech_enterprise: false,
-    is_tech_sme: false,
-    has_specialized_new_sme: false
-  };
 }
 
 function inferProjectDirection(raw: Partial<DemoCompanyPayload>): EnterpriseProfile['project_direction'] {
@@ -524,90 +481,38 @@ export function createApp() {
             ...lookupPlan,
             explanation: `${lookupPlan.explanation} 已识别到区外企业，未生成龙华区政策匹配草稿。`
           };
+        } else if (researchedCompanies.length === 0) {
+          scopeWarning = blockedLookupWarning(
+            '未找到可核验的深圳市龙华区企业主体。系统不会生成未核验画像或默认龙华区画像，请输入完整企业名称，或确认企业确实注册/经营在龙华区后再试。'
+          );
+          lookupPlan = {
+            ...lookupPlan,
+            explanation: `${lookupPlan.explanation} 未找到可核验的深圳市龙华区企业主体，未生成企业画像。`
+          };
         }
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        scopeWarning = blockedLookupWarning(
+          `企业信息检索或解析失败，未能核验该企业是否属于深圳市龙华区。系统不会生成未核验画像或默认龙华区画像，请稍后重试或输入完整企业名称。错误信息：${errorMessage}`
+        );
         lookupPlan = {
           ...plan,
           recommended_sources: Array.from(new Set(['doubao_web_search', ...plan.recommended_sources])),
-          explanation: `${plan.explanation} 豆包联网搜索失败，已退回本地索引/待确认草稿：${
-            error instanceof Error ? error.message : String(error)
-          }`
+          explanation: `${plan.explanation} 豆包联网搜索失败，未生成企业画像：${errorMessage}`
         };
       }
     }
 
-    const searched = candidates.length > 0 || scopeWarning ? [] : searchDemoCompanies([body.query_name, ...plan.search_keywords])
-      .map((company) => ({ company, confidence: candidateConfidence(body.query_name, company) }))
-      .filter((item) => item.confidence >= 0.7)
-      .sort((a, b) => b.confidence - a.confidence);
-
-    for (const { company, confidence } of searched) {
-      const inserted = await pool.query(
-        `
-        INSERT INTO company_lookup_records (
-          user_id, query_name, selected_company_name, selected_credit_code,
-          source_name, source_type, raw_payload, confidence
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
-        RETURNING id
-        `,
-        [
-          req.user.id,
-          body.query_name,
-          company.company_name,
-          company.credit_code,
-          'local_longhua_demo_registry',
-          'local_seed',
-          JSON.stringify(company),
-          confidence
-        ]
-      );
-
-      candidates.push({
-        lookup_id: inserted.rows[0].id,
-        company_name: company.company_name,
-        credit_code: company.credit_code,
-        business_address: company.business_address,
-        registration_status: company.registration_status,
-        source_name: '本地龙华企业示例库',
-        source_type: 'local_seed',
-        confidence
-      });
-    }
-
     if (candidates.length === 0 && !scopeWarning) {
-      const inferred = createInferredCompanyPayload(body.query_name);
-      const inserted = await pool.query(
-        `
-        INSERT INTO company_lookup_records (
-          user_id, query_name, selected_company_name, selected_credit_code,
-          source_name, source_type, raw_payload, confidence
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
-        RETURNING id
-        `,
-        [
-          req.user.id,
-          body.query_name,
-          inferred.company_name,
-          inferred.credit_code,
-          'ai_inferred_company_draft',
-          'inferred',
-          JSON.stringify(inferred),
-          0.48
-        ]
+      scopeWarning = blockedLookupWarning(
+        env.doubaoApiKey
+          ? '未找到可核验的深圳市龙华区企业主体。系统不会生成未核验画像或默认龙华区画像，请输入完整企业名称，或确认企业确实注册/经营在龙华区后再试。'
+          : '企业公开信息检索服务未配置，且本地公开证据索引未命中。系统不会生成未核验画像或默认龙华区画像。'
       );
-
-      candidates.push({
-        lookup_id: inserted.rows[0].id,
-        company_name: inferred.company_name,
-        credit_code: inferred.credit_code,
-        business_address: inferred.business_address,
-        registration_status: inferred.registration_status,
-        source_name: 'AI 画像草稿（待用户确认）',
-        source_type: 'inferred',
-        confidence: 0.48
-      });
+      lookupPlan = {
+        ...lookupPlan,
+        explanation: `${lookupPlan.explanation} 未找到可核验的深圳市龙华区企业主体，未生成企业画像。`
+      };
     }
 
     res.json({ lookup_plan: lookupPlan, candidates, scope_warning: scopeWarning });
