@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
-import { CheckCircle2, FileText, RefreshCcw } from 'lucide-vue-next';
+import { Building2, CheckCircle2, FileText, RefreshCcw } from 'lucide-vue-next';
 import { appState, generateReport, loadLatestMatchRun } from '../state/app-state';
+import { matchCompanySummary } from '../utils/match-company-summary';
 import { profileFieldLabel, replaceProfileFieldKeys } from '../utils/profile-field-labels';
 import { reportActionText, reportNotice, type ReportNoticeState } from '../utils/report-feedback';
 
@@ -13,6 +14,7 @@ const reviewMode = computed(() => sortedResults.value[0]?.ai_mode ?? appState.ai
 const isInferredRun = computed(() =>
   appState.matchRun?.profile_verification_status === 'inferred' || appState.matchRun?.profile_source_type === 'inferred'
 );
+const matchedCompany = computed(() => matchCompanySummary(appState.matchRun?.profile_snapshot ?? null));
 const isLoading = ref(false);
 const isGeneratingReport = ref(false);
 const errorText = ref('');
@@ -91,6 +93,16 @@ async function doGenerateReport() {
     </div>
 
     <p v-if="errorText" class="error-text">{{ errorText }}</p>
+    <section v-if="matchedCompany" class="match-company-panel" aria-label="当前匹配企业">
+      <div class="match-company-icon">
+        <Building2 :size="22" />
+      </div>
+      <div>
+        <span class="mode-pill">匹配结果对应</span>
+        <h2>{{ matchedCompany.title }}</h2>
+        <p>{{ matchedCompany.detail }}</p>
+      </div>
+    </section>
     <section v-if="appState.matchRun" class="report-action-panel">
       <div>
         <span class="mode-pill">综合报告</span>

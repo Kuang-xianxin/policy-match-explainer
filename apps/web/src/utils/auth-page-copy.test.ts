@@ -27,11 +27,11 @@ describe('auth page copy', () => {
     expect(`${configured.description} ${notConfigured.description}`).not.toContain('.env');
   });
 
-  it('summarizes why the auth page is trustworthy for enterprise policy matching', () => {
+  it('introduces the website workflow in user-facing copy', () => {
     expect(authTrustItems()).toEqual([
-      expect.objectContaining({ title: '数据隔离', description: expect.stringContaining('自己的企业画像') }),
-      expect.objectContaining({ title: 'AI 辅助', description: expect.stringContaining('DeepSeek') }),
-      expect.objectContaining({ title: '报告留存', description: expect.stringContaining('匹配结果') })
+      expect.objectContaining({ title: '企业画像生成', description: expect.stringContaining('企业名称') }),
+      expect.objectContaining({ title: '政策智能匹配', description: expect.stringContaining('龙华区惠企政策') }),
+      expect.objectContaining({ title: '报告建议输出', description: expect.stringContaining('申报建议') })
     ]);
   });
 });

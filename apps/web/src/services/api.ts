@@ -75,6 +75,8 @@ export interface GenerateProfileResponse {
 
 export interface MatchRun {
   id: string;
+  enterprise_profile_id?: string;
+  profile_snapshot?: EnterpriseProfile | null;
   profile_source_type?: string;
   profile_verification_status?: string;
 }

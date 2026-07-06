@@ -55,16 +55,16 @@ export function authAiStatusCopy(status?: AuthAiStatusInput | null): AuthAiStatu
 export function authTrustItems(): AuthTrustItem[] {
   return [
     {
-      title: '数据隔离',
-      description: '每个账号只查看自己的企业画像、匹配记录和报告。'
+      title: '企业画像生成',
+      description: '输入企业名称后，系统会整理企业基础信息和用户补充字段，形成可确认的企业画像。'
     },
     {
-      title: 'AI 辅助',
-      description: 'DeepSeek 用于复核政策匹配说明，规则基线仍保持可解释。'
+      title: '政策智能匹配',
+      description: '围绕龙华区惠企政策，先用规则计算命中度，再用 AI 复核匹配理由。'
     },
     {
-      title: '报告留存',
-      description: '匹配结果和建议报告会保存在账号下，便于继续完善材料。'
+      title: '报告建议输出',
+      description: '把可申报方向、待补材料、风险提示和申报建议整理成便于阅读的文字报告。'
     }
   ];
 }

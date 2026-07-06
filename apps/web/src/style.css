@@ -613,6 +613,45 @@ label {
   gap: 14px;
 }
 
+.match-company-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  border: 1px solid #b8d7cf;
+  border-radius: 8px;
+  background: #f6fbf9;
+  padding: 16px 18px;
+}
+
+.match-company-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  color: #146356;
+  background: #dcefea;
+}
+
+.match-company-panel h2,
+.match-company-panel p {
+  margin: 0;
+}
+
+.match-company-panel h2 {
+  color: #12322e;
+  font-size: 22px;
+  margin-top: 10px;
+}
+
+.match-company-panel p {
+  color: #40514c;
+  line-height: 1.55;
+  margin-top: 6px;
+}
+
 .report-action-panel {
   display: flex;
   align-items: center;
@@ -1072,6 +1111,10 @@ label {
   .report-action-panel {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .match-company-panel {
+    padding: 14px;
   }
 
   .report-primary-button {
