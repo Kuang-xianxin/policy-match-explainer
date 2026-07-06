@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { PlayCircle, PlusCircle, Save, Search, WandSparkles } from 'lucide-vue-next';
 import type { AmountRange, EmployeeRange, ProfitRange } from '@policy-match/shared';
@@ -18,6 +18,7 @@ import {
   smartGenerateAndMatch,
   startManualProfile
 } from '../state/app-state';
+import { matchProgressSteps, type MatchProgressPhase } from '../utils/match-progress';
 import { profileFieldLabelsFor } from '../utils/profile-field-labels';
 
 const router = useRouter();
@@ -29,6 +30,10 @@ const isSaving = ref(false);
 const isMatching = ref(false);
 const isSmartMatching = ref(false);
 const saveAndMatchStatusText = ref('');
+const matchProgressPhase = ref<MatchProgressPhase>('saving_profile');
+const matchProgressStartedAt = ref(0);
+const matchProgressElapsedSeconds = ref(0);
+let matchProgressTimer: number | undefined;
 const profile = computed(() => appState.draftProfile);
 const generatedProfileIsInferred = computed(() =>
   appState.generatedProfileMeta?.field_sources.some((item) => item.source_type === 'inferred') ?? false
@@ -36,6 +41,8 @@ const generatedProfileIsInferred = computed(() =>
 const generatedMissingFieldLabels = computed(() =>
   profileFieldLabelsFor(appState.generatedProfileMeta?.missing_fields ?? [])
 );
+const showMatchProgress = computed(() => isMatching.value || isSmartMatching.value);
+const visibleMatchProgressSteps = computed(() => matchProgressSteps(matchProgressPhase.value));
 
 function modeLabel(mode?: string): string {
   if (mode === 'deepseek') return 'DeepSeek';
@@ -84,6 +91,32 @@ onMounted(() => {
   void loadProfiles();
 });
 
+onBeforeUnmount(() => {
+  stopMatchProgressTimer();
+});
+
+function startMatchProgress(phase: MatchProgressPhase) {
+  matchProgressPhase.value = phase;
+  matchProgressStartedAt.value = Date.now();
+  matchProgressElapsedSeconds.value = 0;
+  stopMatchProgressTimer();
+  matchProgressTimer = window.setInterval(() => {
+    matchProgressElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - matchProgressStartedAt.value) / 1000));
+  }, 1000);
+}
+
+function updateMatchProgress(phase: MatchProgressPhase, message: string) {
+  matchProgressPhase.value = phase;
+  saveAndMatchStatusText.value = message;
+  appState.statusText = message;
+}
+
+function stopMatchProgressTimer() {
+  if (matchProgressTimer === undefined) return;
+  window.clearInterval(matchProgressTimer);
+  matchProgressTimer = undefined;
+}
+
 async function doSearch() {
   errorText.value = '';
   if (queryName.value.trim().length < 2) {
@@ -108,12 +141,17 @@ async function doSmartMatch() {
   }
   if (isSmartMatching.value) return;
   isSmartMatching.value = true;
+  startMatchProgress('scoring_rules');
+  saveAndMatchStatusText.value = '正在生成画像并匹配政策...';
   try {
     await smartGenerateAndMatch(queryName.value);
+    updateMatchProgress('opening_results', '匹配完成，正在打开结果页...');
     await router.push('/results');
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '智能生成并匹配失败';
+    saveAndMatchStatusText.value = '';
   } finally {
+    stopMatchProgressTimer();
     isSmartMatching.value = false;
   }
 }
@@ -148,21 +186,23 @@ async function doSaveAndMatch() {
   saveAndMatchStatusText.value = '';
   if (isMatching.value) return;
   isMatching.value = true;
+  startMatchProgress('saving_profile');
   try {
-    saveAndMatchStatusText.value = '正在保存企业画像...';
+    updateMatchProgress('saving_profile', '正在保存企业画像...');
     const saved = await saveManualProfile();
     if (!saved) {
       saveAndMatchStatusText.value = '没有可保存的画像，请先生成或填写企业画像。';
       return;
     }
-    saveAndMatchStatusText.value = '画像已保存，正在匹配政策...';
+    updateMatchProgress('ai_review', '画像已保存，正在匹配政策并进行 DeepSeek 复核...');
     await runMatch(saved.id);
-    saveAndMatchStatusText.value = '匹配完成，正在打开结果页...';
+    updateMatchProgress('opening_results', '匹配完成，正在打开结果页...');
     await router.push('/results');
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '保存并匹配失败';
     saveAndMatchStatusText.value = '';
   } finally {
+    stopMatchProgressTimer();
     isMatching.value = false;
   }
 }
@@ -171,12 +211,16 @@ async function doMatch(profileId: string) {
   errorText.value = '';
   if (isMatching.value) return;
   isMatching.value = true;
+  startMatchProgress('ai_review');
   try {
+    updateMatchProgress('ai_review', '正在匹配政策并进行 DeepSeek 复核...');
     await runMatch(profileId);
+    updateMatchProgress('opening_results', '匹配完成，正在打开结果页...');
     await router.push('/results');
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '匹配失败';
   } finally {
+    stopMatchProgressTimer();
     isMatching.value = false;
   }
 }
@@ -215,6 +259,25 @@ async function doMatch(profileId: string) {
       </div>
 
       <p v-if="errorText" class="error-text">{{ errorText }}</p>
+      <div v-if="showMatchProgress" class="match-progress-panel" role="status" aria-live="polite">
+        <div class="progress-spinner" aria-hidden="true"></div>
+        <div class="match-progress-content">
+          <div class="match-progress-heading">
+            <strong>{{ saveAndMatchStatusText || '正在匹配政策...' }}</strong>
+            <span>已等待 {{ matchProgressElapsedSeconds }} 秒</span>
+          </div>
+          <ol class="match-progress-steps">
+            <li
+              v-for="step in visibleMatchProgressSteps"
+              :key="step.key"
+              :class="`step-${step.status}`"
+            >
+              <span>{{ step.label }}</span>
+              <small>{{ step.description }}</small>
+            </li>
+          </ol>
+        </div>
+      </div>
 
       <div v-if="appState.lookupPlan" class="lookup-plan">
         <strong>AI 查询计划</strong>
@@ -266,7 +329,7 @@ async function doMatch(profileId: string) {
         <span>置信度：{{ Math.round(appState.generatedProfileMeta.ai_confidence * 100) }}%</span>
         <span>待补字段：{{ generatedMissingFieldLabels.length ? generatedMissingFieldLabels.join('、') : '暂无' }}</span>
       </div>
-      <p v-if="saveAndMatchStatusText" class="hint">{{ saveAndMatchStatusText }}</p>
+      <p v-if="saveAndMatchStatusText && !showMatchProgress" class="hint">{{ saveAndMatchStatusText }}</p>
       <div v-if="generatedProfileIsInferred" class="warning-panel">
         当前画像来自未验证 AI 草稿。企业名称、统一社会信用代码、经营地址、成立年份和资质状态都需要人工确认后才能用于正式申报。
       </div>

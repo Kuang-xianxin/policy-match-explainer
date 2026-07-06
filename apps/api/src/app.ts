@@ -26,7 +26,7 @@ import {
   type CompanyResearchPayload
 } from './services/company-research.js';
 import { createSession, hashPassword, hashToken, requireAuth, verifyPassword, type AuthenticatedRequest } from './services/auth.js';
-import { selectPolicyReviewCandidates } from './services/policy-match-selection.js';
+import { mapPolicyReviewCandidates, selectPolicyReviewCandidates } from './services/policy-match-selection.js';
 
 function asyncHandler<T extends Request>(handler: (req: T, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -765,29 +765,37 @@ export function createApp() {
     const selectedCandidates = selectPolicyReviewCandidates(policyCandidates, env.matchReviewPolicyLimit);
     const results = [];
 
-    for (const { policy, baseline } of selectedCandidates) {
-      const aiReview = await reviewPolicyMatch(profile, policy, baseline, aiConfig());
-      const hasHardFailure = baseline.hard_failures.length > 0;
-      const finalScore = hasHardFailure
-        ? baseline.baseline_score
-        : clampScore(baseline.baseline_score + aiReview.ai_adjustment);
-      const finalLevel = profileIsInferred && !hasHardFailure
-        ? 'need_more_info'
-        : levelFromFinalScore(finalScore, baseline.baseline_level, hasHardFailure);
-      const missingConditions = profileIsInferred
-        ? [
-            ...baseline.missing_conditions,
-            {
-              field_key: 'company_identity_verification',
-              expected_value: 'verified_enterprise_record',
-              evidence_text: '当前画像来自未验证 AI 草稿，正式申报前必须核对企业主体、信用代码和经营地址。',
-              required: true
-            }
-          ]
-        : baseline.missing_conditions;
-      const riskNotes = profileIsInferred
-        ? [...baseline.risk_notes, '画像来源为未验证 AI 草稿，本次结果仅可作为试算参考。']
-        : baseline.risk_notes;
+    const reviewedCandidates = await mapPolicyReviewCandidates(
+      selectedCandidates,
+      env.matchReviewConcurrency,
+      async ({ policy, baseline }) => {
+        const aiReview = await reviewPolicyMatch(profile, policy, baseline, aiConfig());
+        const hasHardFailure = baseline.hard_failures.length > 0;
+        const finalScore = hasHardFailure
+          ? baseline.baseline_score
+          : clampScore(baseline.baseline_score + aiReview.ai_adjustment);
+        const finalLevel = profileIsInferred && !hasHardFailure
+          ? 'need_more_info'
+          : levelFromFinalScore(finalScore, baseline.baseline_level, hasHardFailure);
+        const missingConditions = profileIsInferred
+          ? [
+              ...baseline.missing_conditions,
+              {
+                field_key: 'company_identity_verification',
+                expected_value: 'verified_enterprise_record',
+                evidence_text: '当前画像来自未验证 AI 草稿，正式申报前必须核对企业主体、信用代码和经营地址。',
+                required: true
+              }
+            ]
+          : baseline.missing_conditions;
+        const riskNotes = profileIsInferred
+          ? [...baseline.risk_notes, '画像来源为未验证 AI 草稿，本次结果仅可作为试算参考。']
+          : baseline.risk_notes;
+        return { policy, baseline, aiReview, finalScore, finalLevel, missingConditions, riskNotes };
+      }
+    );
+
+    for (const { policy, baseline, aiReview, finalScore, finalLevel, missingConditions, riskNotes } of reviewedCandidates) {
       const inserted = await pool.query(
         `
         INSERT INTO match_results (

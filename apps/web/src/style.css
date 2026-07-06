@@ -541,6 +541,106 @@ label {
   padding: 10px 12px;
 }
 
+.match-progress-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
+  display: grid;
+  width: min(560px, calc(100vw - 32px));
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  border: 1px solid #b8d2cb;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 18px 40px rgba(18, 50, 46, 0.18);
+  padding: 16px;
+}
+
+.progress-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #d9e9e5;
+  border-top-color: #1f6f63;
+  border-radius: 999px;
+  animation: spin 0.9s linear infinite;
+}
+
+.match-progress-content {
+  display: grid;
+  gap: 10px;
+}
+
+.match-progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.match-progress-heading strong,
+.match-progress-heading span {
+  display: block;
+}
+
+.match-progress-heading span {
+  color: #65736f;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.match-progress-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.match-progress-steps li {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  border-top: 3px solid #d9e1de;
+  color: #65736f;
+  list-style: none;
+  padding-top: 8px;
+}
+
+.match-progress-steps span,
+.match-progress-steps small {
+  overflow-wrap: anywhere;
+}
+
+.match-progress-steps span {
+  color: #2f3c38;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.match-progress-steps small {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.match-progress-steps .step-done {
+  border-top-color: #1f6f63;
+}
+
+.match-progress-steps .step-active {
+  border-top-color: #2563eb;
+}
+
+.match-progress-steps .step-active span {
+  color: #2563eb;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 pre {
   margin: 0;
   white-space: pre-wrap;
@@ -580,5 +680,15 @@ pre {
 
   .final-score {
     justify-items: start;
+  }
+
+  .match-progress-panel {
+    right: 16px;
+    bottom: 16px;
+    grid-template-columns: 1fr;
+  }
+
+  .match-progress-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
