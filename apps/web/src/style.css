@@ -567,6 +567,49 @@ label {
   color: #7c2d12;
 }
 
+.inline-progress-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #b8d2cb;
+  border-radius: 8px;
+  background: #f7fbfa;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.progress-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.progress-summary strong,
+.progress-summary span {
+  display: block;
+}
+
+.progress-summary span {
+  color: #65736f;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.operation-progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #d9e9e5;
+}
+
+.operation-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #1f6f63;
+  transition: width 0.25s ease;
+}
+
 .match-progress-panel {
   position: fixed;
   right: 24px;
@@ -623,6 +666,10 @@ label {
   padding: 0;
 }
 
+.lookup-progress-steps {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .match-progress-steps li {
   display: grid;
   min-width: 0;
@@ -664,6 +711,24 @@ label {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 720px) {
+  .progress-summary,
+  .match-progress-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .progress-summary span,
+  .match-progress-heading span {
+    white-space: normal;
+  }
+
+  .match-progress-steps,
+  .lookup-progress-steps {
+    grid-template-columns: 1fr;
   }
 }
 

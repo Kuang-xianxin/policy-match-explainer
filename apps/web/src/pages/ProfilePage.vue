@@ -15,10 +15,18 @@ import {
   saveManualProfile,
   searchCompany,
   setArrayField,
-  smartGenerateAndMatch,
   startManualProfile
 } from '../state/app-state';
-import { matchProgressSteps, type MatchProgressPhase } from '../utils/match-progress';
+import {
+  lookupProgressSteps,
+  matchProgressPercent,
+  matchProgressSteps,
+  operationEstimate,
+  progressPercent,
+  type LookupProgressPhase,
+  type MatchProgressPhase,
+  type OperationProgressKind
+} from '../utils/match-progress';
 import { profileFieldLabelsFor } from '../utils/profile-field-labels';
 
 const router = useRouter();
@@ -33,7 +41,14 @@ const saveAndMatchStatusText = ref('');
 const matchProgressPhase = ref<MatchProgressPhase>('saving_profile');
 const matchProgressStartedAt = ref(0);
 const matchProgressElapsedSeconds = ref(0);
+const lookupProgressPhase = ref<LookupProgressPhase>('planning_query');
+const lookupProgressKind = ref<OperationProgressKind>('candidate_search');
+const lookupProgressMessage = ref('');
+const lookupProgressStartedAt = ref(0);
+const lookupProgressElapsedSeconds = ref(0);
+const isLookupProgressVisible = ref(false);
 let matchProgressTimer: number | undefined;
+let lookupProgressTimer: number | undefined;
 const profile = computed(() => appState.draftProfile);
 const generatedProfileIsInferred = computed(() =>
   appState.generatedProfileMeta?.field_sources.some((item) => item.source_type === 'inferred') ?? false
@@ -41,8 +56,17 @@ const generatedProfileIsInferred = computed(() =>
 const generatedMissingFieldLabels = computed(() =>
   profileFieldLabelsFor(appState.generatedProfileMeta?.missing_fields ?? [])
 );
-const showMatchProgress = computed(() => isMatching.value || isSmartMatching.value);
+const showMatchProgress = computed(() => isMatching.value || (isSmartMatching.value && !isLookupProgressVisible.value));
 const visibleMatchProgressSteps = computed(() => matchProgressSteps(matchProgressPhase.value));
+const visibleLookupProgressSteps = computed(() => lookupProgressSteps(lookupProgressPhase.value));
+const activeLookupEstimate = computed(() => operationEstimate(lookupProgressKind.value));
+const activeMatchEstimate = computed(() => operationEstimate('policy_match'));
+const lookupProgressPercentValue = computed(() =>
+  progressPercent(lookupProgressElapsedSeconds.value, activeLookupEstimate.value.estimatedSeconds)
+);
+const matchProgressPercentValue = computed(() =>
+  matchProgressPercent(matchProgressPhase.value, matchProgressElapsedSeconds.value)
+);
 
 function modeLabel(mode?: string): string {
   if (mode === 'deepseek') return 'DeepSeek';
@@ -93,6 +117,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopMatchProgressTimer();
+  stopLookupProgressTimer();
 });
 
 function startMatchProgress(phase: MatchProgressPhase) {
@@ -103,6 +128,31 @@ function startMatchProgress(phase: MatchProgressPhase) {
   matchProgressTimer = window.setInterval(() => {
     matchProgressElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - matchProgressStartedAt.value) / 1000));
   }, 1000);
+}
+
+function startLookupProgress(kind: OperationProgressKind, message: string) {
+  lookupProgressKind.value = kind;
+  lookupProgressPhase.value = 'planning_query';
+  lookupProgressMessage.value = message;
+  lookupProgressStartedAt.value = Date.now();
+  lookupProgressElapsedSeconds.value = 0;
+  isLookupProgressVisible.value = true;
+  stopLookupProgressTimer(false);
+  lookupProgressTimer = window.setInterval(() => {
+    const elapsed = Math.max(0, Math.floor((Date.now() - lookupProgressStartedAt.value) / 1000));
+    lookupProgressElapsedSeconds.value = elapsed;
+    if (elapsed >= 18) {
+      lookupProgressPhase.value = 'candidate_filtering';
+    } else if (elapsed >= 3) {
+      lookupProgressPhase.value = 'web_research';
+    }
+  }, 1000);
+}
+
+function updateLookupProgress(phase: LookupProgressPhase, message: string) {
+  lookupProgressPhase.value = phase;
+  lookupProgressMessage.value = message;
+  appState.statusText = message;
 }
 
 function updateMatchProgress(phase: MatchProgressPhase, message: string) {
@@ -117,6 +167,16 @@ function stopMatchProgressTimer() {
   matchProgressTimer = undefined;
 }
 
+function stopLookupProgressTimer(hide = true) {
+  if (lookupProgressTimer !== undefined) {
+    window.clearInterval(lookupProgressTimer);
+    lookupProgressTimer = undefined;
+  }
+  if (hide) {
+    isLookupProgressVisible.value = false;
+  }
+}
+
 async function doSearch() {
   errorText.value = '';
   if (queryName.value.trim().length < 2) {
@@ -124,11 +184,14 @@ async function doSearch() {
     return;
   }
   isSearching.value = true;
+  startLookupProgress('candidate_search', '正在联网检索企业公开证据...');
   try {
     await searchCompany(queryName.value);
+    updateLookupProgress('candidate_filtering', '候选企业核验完成。');
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '企业候选查询失败';
   } finally {
+    stopLookupProgressTimer();
     isSearching.value = false;
   }
 }
@@ -141,16 +204,38 @@ async function doSmartMatch() {
   }
   if (isSmartMatching.value) return;
   isSmartMatching.value = true;
-  startMatchProgress('scoring_rules');
-  saveAndMatchStatusText.value = '正在生成画像并匹配政策...';
+  startLookupProgress('smart_match', '正在联网检索并核验候选企业...');
+  saveAndMatchStatusText.value = '';
   try {
-    await smartGenerateAndMatch(queryName.value);
+    await searchCompany(queryName.value);
+    if (appState.scopeWarning) {
+      throw new Error(appState.scopeWarning.message);
+    }
+    if (appState.candidates.length !== 1) {
+      throw new Error('找到多个候选企业，请先选择正确企业后再生成画像。');
+    }
+    const [candidate] = appState.candidates;
+    if (!candidate) {
+      throw new Error('未找到可生成画像的候选企业。');
+    }
+    updateLookupProgress('candidate_filtering', '候选企业已核验，正在生成画像...');
+    await generateProfileFromCandidate(candidate.lookup_id);
+    stopLookupProgressTimer();
+    startMatchProgress('saving_profile');
+    updateMatchProgress('saving_profile', '画像已生成，正在保存并准备匹配...');
+    const saved = await saveManualProfile();
+    if (!saved) {
+      throw new Error('画像保存失败，无法发起匹配。');
+    }
+    updateMatchProgress('ai_review', '正在匹配政策并进行 DeepSeek 复核...');
+    await runMatch(saved.id);
     updateMatchProgress('opening_results', '匹配完成，正在打开结果页...');
     await router.push('/results');
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '智能生成并匹配失败';
     saveAndMatchStatusText.value = '';
   } finally {
+    stopLookupProgressTimer();
     stopMatchProgressTimer();
     isSmartMatching.value = false;
   }
@@ -250,12 +335,32 @@ async function doMatch(profileId: string) {
         </label>
         <div class="search-actions">
           <button :disabled="isSearching || isSmartMatching" @click="doSearch">
-            <Search :size="16" />{{ isSearching ? '查询中' : '查询候选' }}
+            <Search :size="16" />{{ isSearching ? `查询中 · ${operationEstimate('candidate_search').label}` : '查询候选' }}
           </button>
           <button :disabled="isSearching || isSmartMatching" @click="doSmartMatch">
-            <PlayCircle :size="16" />{{ isSmartMatching ? '匹配中' : '智能生成并匹配' }}
+            <PlayCircle :size="16" />{{ isSmartMatching ? `处理中 · ${operationEstimate('smart_match').label}` : '智能生成并匹配' }}
           </button>
         </div>
+      </div>
+
+      <div v-if="isLookupProgressVisible" class="inline-progress-panel" role="status" aria-live="polite">
+        <div class="progress-summary">
+          <strong>{{ lookupProgressMessage || '正在查询候选企业...' }}</strong>
+          <span>{{ activeLookupEstimate.label }} · 已等待 {{ lookupProgressElapsedSeconds }} 秒</span>
+        </div>
+        <div class="operation-progress-bar" aria-hidden="true">
+          <span :style="{ width: `${lookupProgressPercentValue}%` }"></span>
+        </div>
+        <ol class="match-progress-steps lookup-progress-steps">
+          <li
+            v-for="step in visibleLookupProgressSteps"
+            :key="step.key"
+            :class="`step-${step.status}`"
+          >
+            <span>{{ step.label }}</span>
+            <small>{{ step.description }}</small>
+          </li>
+        </ol>
       </div>
 
       <p v-if="errorText" class="error-text">{{ errorText }}</p>
@@ -280,7 +385,10 @@ async function doMatch(profileId: string) {
         <div class="match-progress-content">
           <div class="match-progress-heading">
             <strong>{{ saveAndMatchStatusText || '正在匹配政策...' }}</strong>
-            <span>已等待 {{ matchProgressElapsedSeconds }} 秒</span>
+            <span>{{ activeMatchEstimate.label }} · 已等待 {{ matchProgressElapsedSeconds }} 秒</span>
+          </div>
+          <div class="operation-progress-bar" aria-hidden="true">
+            <span :style="{ width: `${matchProgressPercentValue}%` }"></span>
           </div>
           <ol class="match-progress-steps">
             <li
@@ -335,7 +443,7 @@ async function doMatch(profileId: string) {
             <Save :size="16" />{{ isSaving ? '保存中' : '保存画像' }}
           </button>
           <button :disabled="isSaving || isMatching" @click="doSaveAndMatch">
-            <PlayCircle :size="16" />{{ isMatching ? '匹配中' : '保存并匹配' }}
+            <PlayCircle :size="16" />{{ isMatching ? `匹配中 · ${activeMatchEstimate.label}` : '保存并匹配' }}
           </button>
         </div>
       </div>
