@@ -541,6 +541,32 @@ label {
   padding: 10px 12px;
 }
 
+.scope-warning-panel {
+  display: grid;
+  gap: 8px;
+  line-height: 1.55;
+}
+
+.scope-warning-panel p {
+  margin: 0;
+}
+
+.scope-warning-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.scope-warning-list span,
+.scope-warning-list small {
+  display: block;
+}
+
+.scope-warning-list small {
+  color: #7c2d12;
+}
+
 .match-progress-panel {
   position: fixed;
   right: 24px;

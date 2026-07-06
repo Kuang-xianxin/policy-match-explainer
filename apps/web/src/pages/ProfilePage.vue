@@ -259,6 +259,22 @@ async function doMatch(profileId: string) {
       </div>
 
       <p v-if="errorText" class="error-text">{{ errorText }}</p>
+      <div v-if="appState.scopeWarning" class="warning-panel scope-warning-panel">
+        <strong>暂不支持区外企业匹配</strong>
+        <p>{{ appState.scopeWarning.message }}</p>
+        <ul class="scope-warning-list">
+          <li
+            v-for="item in appState.scopeWarning.rejected_companies"
+            :key="`${item.company_name}-${item.district ?? ''}-${item.business_address ?? ''}`"
+          >
+            <span>{{ item.company_name }}</span>
+            <small v-if="item.district || item.business_address">
+              {{ [item.district, item.business_address].filter(Boolean).join(' · ') }}
+            </small>
+            <small>{{ item.reason }}</small>
+          </li>
+        </ul>
+      </div>
       <div v-if="showMatchProgress" class="match-progress-panel" role="status" aria-live="polite">
         <div class="progress-spinner" aria-hidden="true"></div>
         <div class="match-progress-content">
@@ -305,7 +321,7 @@ async function doMatch(profileId: string) {
         </button>
       </div>
 
-      <p v-else-if="appState.lookupPlan" class="hint">没有找到候选企业。系统会提供 AI 草稿候选用于继续生成待确认画像。</p>
+      <p v-else-if="appState.lookupPlan && !appState.scopeWarning" class="hint">没有找到候选企业。系统会提供 AI 草稿候选用于继续生成待确认画像。</p>
     </section>
 
     <section v-if="profile" class="panel">

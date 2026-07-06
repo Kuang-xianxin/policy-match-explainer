@@ -49,6 +49,22 @@ export interface EnterpriseProfileRecord {
 export type Candidate = CompanyLookupCandidate;
 export type LookupPlan = CompanyLookupPlan;
 
+export interface ScopeWarning {
+  message: string;
+  rejected_companies: Array<{
+    company_name: string;
+    business_address?: string;
+    district?: string;
+    reason: string;
+  }>;
+}
+
+export interface CompanyLookupResponse {
+  lookup_plan: LookupPlan;
+  candidates: Candidate[];
+  scope_warning?: ScopeWarning | null;
+}
+
 export interface GenerateProfileResponse {
   enterprise_profile: EnterpriseProfile;
   field_sources: FieldSource[];

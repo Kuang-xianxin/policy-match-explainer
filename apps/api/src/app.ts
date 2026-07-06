@@ -21,8 +21,9 @@ import { pool } from './db/pool.js';
 import {
   createProfileFromResearchPayload,
   missingFieldsForProfile,
-  researchCompaniesWithDoubao,
+  researchCompaniesWithDoubaoDetailed,
   researchFieldSources,
+  type RejectedCompanyResearch,
   type CompanyResearchPayload
 } from './services/company-research.js';
 import { createSession, hashPassword, hashToken, requireAuth, verifyPassword, type AuthenticatedRequest } from './services/auth.js';
@@ -57,6 +58,13 @@ function doubaoConfig() {
 
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function outOfScopeWarning(rejectedCompanies: RejectedCompanyResearch[]) {
+  return {
+    message: '已找到企业公开信息，但该企业不在深圳市龙华区范围内。当前系统只支持龙华区惠企政策匹配，请更换龙华区企业，或先核对企业注册地址/经营地址。',
+    rejected_companies: rejectedCompanies
+  };
 }
 
 function databaseErrorResponse(error: unknown): { code?: string; message: string } | null {
@@ -421,6 +429,7 @@ export function createApp() {
     const plan = await planCompanyLookup(body.query_name, aiConfig());
     const candidates: CompanyLookupCandidate[] = [];
     let lookupPlan = plan;
+    let scopeWarning: ReturnType<typeof outOfScopeWarning> | null = null;
     const curatedCompanies = searchCuratedEnterpriseResearch([body.query_name, ...plan.search_keywords]);
 
     for (const company of curatedCompanies) {
@@ -467,7 +476,8 @@ export function createApp() {
 
     if (candidates.length === 0 && env.doubaoApiKey) {
       try {
-        const researchedCompanies = await researchCompaniesWithDoubao(body.query_name, plan.search_keywords, doubaoConfig());
+        const researchResult = await researchCompaniesWithDoubaoDetailed(body.query_name, plan.search_keywords, doubaoConfig());
+        const researchedCompanies = researchResult.candidates;
         for (const company of researchedCompanies) {
           const inserted = await pool.query(
             `
@@ -508,6 +518,13 @@ export function createApp() {
           recommended_sources: Array.from(new Set(['doubao_web_search', ...plan.recommended_sources])),
           explanation: `${plan.explanation} 已优先调用豆包联网搜索获取公开证据。`
         };
+        if (researchedCompanies.length === 0 && researchResult.rejected_companies.length > 0) {
+          scopeWarning = outOfScopeWarning(researchResult.rejected_companies);
+          lookupPlan = {
+            ...lookupPlan,
+            explanation: `${lookupPlan.explanation} 已识别到区外企业，未生成龙华区政策匹配草稿。`
+          };
+        }
       } catch (error) {
         lookupPlan = {
           ...plan,
@@ -519,7 +536,7 @@ export function createApp() {
       }
     }
 
-    const searched = candidates.length > 0 ? [] : searchDemoCompanies([body.query_name, ...plan.search_keywords])
+    const searched = candidates.length > 0 || scopeWarning ? [] : searchDemoCompanies([body.query_name, ...plan.search_keywords])
       .map((company) => ({ company, confidence: candidateConfidence(body.query_name, company) }))
       .filter((item) => item.confidence >= 0.7)
       .sort((a, b) => b.confidence - a.confidence);
@@ -558,7 +575,7 @@ export function createApp() {
       });
     }
 
-    if (candidates.length === 0) {
+    if (candidates.length === 0 && !scopeWarning) {
       const inferred = createInferredCompanyPayload(body.query_name);
       const inserted = await pool.query(
         `
@@ -593,7 +610,7 @@ export function createApp() {
       });
     }
 
-    res.json({ lookup_plan: lookupPlan, candidates });
+    res.json({ lookup_plan: lookupPlan, candidates, scope_warning: scopeWarning });
   }));
 
   app.post('/api/company-lookup/:id/generate-profile', requireAuth, asyncHandler<AuthenticatedRequest>(async (req, res) => {

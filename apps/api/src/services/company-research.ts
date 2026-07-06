@@ -81,6 +81,18 @@ export interface CompanyResearchPayload {
   confidence: number;
 }
 
+export interface RejectedCompanyResearch {
+  company_name: string;
+  business_address?: string;
+  district?: string;
+  reason: string;
+}
+
+export interface CompanyResearchResult {
+  candidates: CompanyResearchPayload[];
+  rejected_companies: RejectedCompanyResearch[];
+}
+
 const amountRanges: AmountRange[] = ['unknown', 'none', 'lt_1m', '1m_5m', '5m_20m', '20m_100m', 'gte_100m'];
 const employeeRanges: EmployeeRange[] = ['unknown', 'lt_10', '10_50', '50_100', '100_300', 'gte_300'];
 const listedStatuses: ListedStatus[] = ['unlisted', 'listed', 'new_third_board', 'pre_listing', 'unknown'];
@@ -95,6 +107,7 @@ const sourceTypes: ProfileFieldSourceType[] = [
   'local_seed',
   'inferred'
 ];
+const longhuaDistrictName = '龙华区';
 
 function stringValue(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
@@ -112,6 +125,38 @@ function booleanValue(value: unknown, fallback = false): boolean {
 function arrayOfStrings(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map(String).map((item) => item.trim()).filter(Boolean);
+}
+
+function containsLonghua(value: string | undefined): boolean {
+  return typeof value === 'string' && value.includes('龙华');
+}
+
+function longhuaScopeRejectionReason(payload: CompanyResearchPayload): string | null {
+  if (containsLonghua(payload.district) || containsLonghua(payload.business_address)) return null;
+
+  const district = payload.district?.trim();
+  if (district) return `公开资料显示所在区为${district}，不属于深圳市${longhuaDistrictName}。`;
+
+  const address = payload.business_address?.trim();
+  if (address) return `公开资料显示地址为${address}，未发现${longhuaDistrictName}注册地址或经营地址。`;
+
+  return '未找到可核验的龙华区注册地址或经营地址证据。';
+}
+
+export function assertLonghuaResearchPayload(payload: CompanyResearchPayload): void {
+  const reason = longhuaScopeRejectionReason(payload);
+  if (reason) {
+    throw new Error(`当前企业不在深圳市龙华区政策匹配范围内：${reason}`);
+  }
+}
+
+function rejectedCompanyFromPayload(payload: CompanyResearchPayload): RejectedCompanyResearch {
+  return {
+    company_name: payload.company_name,
+    business_address: payload.business_address,
+    district: payload.district,
+    reason: longhuaScopeRejectionReason(payload) ?? ''
+  };
 }
 
 function enumValue<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -401,7 +446,7 @@ function normalizeCandidate(raw: unknown, queryName: string): CompanyResearchPay
     registered_capital: numberValue(item.registered_capital, 0),
     registration_status: stringValue(item.registration_status) || undefined,
     business_address: stringValue(item.business_address) || undefined,
-    district: stringValue(item.district, '龙华区'),
+    district: stringValue(item.district) || undefined,
     industry: stringValue(item.industry) || undefined,
     business_scope: stringValue(item.business_scope) || undefined,
     listed_status: enumValue(item.listed_status, listedStatuses, 'unknown'),
@@ -442,12 +487,12 @@ function normalizeCandidate(raw: unknown, queryName: string): CompanyResearchPay
   };
 }
 
-export async function researchCompaniesWithDoubao(
+export async function researchCompaniesWithDoubaoDetailed(
   queryName: string,
   keywords: string[],
   config: DoubaoResearchConfig
-): Promise<CompanyResearchPayload[]> {
-  if (!config.apiKey?.trim()) return [];
+): Promise<CompanyResearchResult> {
+  if (!config.apiKey?.trim()) return { candidates: [], rejected_companies: [] };
 
   const instructions = [
     '你是深圳市龙华区企业公开资料研究员。',
@@ -474,11 +519,26 @@ export async function researchCompaniesWithDoubao(
     const text = extractResponseText(json);
     const parsed = parseJsonObject(text) as { candidates?: unknown };
     const candidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
-    return candidates
+    const normalizedCandidates = candidates
       .map((candidate) => normalizeCandidate(candidate, queryName))
       .filter((candidate): candidate is CompanyResearchPayload => candidate !== null)
-      .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 5);
+      .sort((a, b) => b.confidence - a.confidence);
+    const accepted: CompanyResearchPayload[] = [];
+    const rejected: RejectedCompanyResearch[] = [];
+
+    for (const candidate of normalizedCandidates) {
+      const rejectionReason = longhuaScopeRejectionReason(candidate);
+      if (rejectionReason) {
+        rejected.push(rejectedCompanyFromPayload(candidate));
+        continue;
+      }
+      accepted.push(candidate);
+    }
+
+    return {
+      candidates: accepted.slice(0, 5),
+      rejected_companies: rejected.slice(0, 5)
+    };
   } catch (error) {
     const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
     const causeCode =
@@ -489,10 +549,19 @@ export async function researchCompaniesWithDoubao(
   }
 }
 
+export async function researchCompaniesWithDoubao(
+  queryName: string,
+  keywords: string[],
+  config: DoubaoResearchConfig
+): Promise<CompanyResearchPayload[]> {
+  return (await researchCompaniesWithDoubaoDetailed(queryName, keywords, config)).candidates;
+}
+
 export function createProfileFromResearchPayload(
   payload: CompanyResearchPayload,
   mappedProfile: Partial<EnterpriseProfile>
 ): EnterpriseProfile {
+  assertLonghuaResearchPayload(payload);
   const employeeCount = numberValue(payload.employee_count, numberValue(mappedProfile.employee_count, 0));
   const revenueLastYear = numberValue(payload.revenue_last_year, numberValue(mappedProfile.revenue_last_year, 0));
   const profitLastYear = numberValue(payload.profit_last_year, numberValue(mappedProfile.profit_last_year, 0));

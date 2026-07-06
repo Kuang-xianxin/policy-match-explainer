@@ -4,12 +4,14 @@ import {
   api,
   type AiStatus,
   type Candidate,
+  type CompanyLookupResponse,
   type EnterpriseProfileRecord,
   type GenerateProfileResponse,
   type LookupPlan,
   type MatchResult,
   type MatchRun,
   type ReportRecord,
+  type ScopeWarning,
   type UserResponse
 } from '../services/api';
 
@@ -50,6 +52,7 @@ export const appState = reactive({
   isLoadingProfiles: false,
   lookupPlan: null as LookupPlan | null,
   candidates: [] as Candidate[],
+  scopeWarning: null as ScopeWarning | null,
   generatedProfileMeta: null as Omit<GenerateProfileResponse, 'enterprise_profile'> | null,
   draftProfile: null as EnterpriseProfile | null,
   profiles: [] as EnterpriseProfileRecord[],
@@ -100,6 +103,7 @@ export function logout(): void {
   appState.statusText = '已退出';
   appState.lookupPlan = null;
   appState.candidates = [];
+  appState.scopeWarning = null;
   appState.generatedProfileMeta = null;
   appState.draftProfile = null;
   appState.profiles = [];
@@ -112,21 +116,24 @@ export function logout(): void {
 export async function searchCompany(queryName: string): Promise<void> {
   appState.lookupPlan = null;
   appState.candidates = [];
+  appState.scopeWarning = null;
   appState.generatedProfileMeta = null;
   appState.draftProfile = null;
   appState.statusText = '正在查询候选企业';
 
-  const data = await api<{ lookup_plan: LookupPlan; candidates: Candidate[] }>(
+  const data = await api<CompanyLookupResponse>(
     '/api/company-lookup/search',
     appState.token,
     { method: 'POST', body: JSON.stringify({ query_name: queryName }) }
   );
   appState.lookupPlan = data.lookup_plan;
   appState.candidates = data.candidates;
-  appState.statusText = `找到 ${data.candidates.length} 个候选企业`;
+  appState.scopeWarning = data.scope_warning ?? null;
+  appState.statusText = appState.scopeWarning?.message ?? `找到 ${data.candidates.length} 个候选企业`;
 }
 
 export async function generateProfileFromCandidate(lookupId: string): Promise<void> {
+  appState.scopeWarning = null;
   const data = await api<GenerateProfileResponse>(
     `/api/company-lookup/${lookupId}/generate-profile`,
     appState.token,
@@ -144,6 +151,9 @@ export async function generateProfileFromCandidate(lookupId: string): Promise<vo
 
 export async function smartGenerateAndMatch(queryName: string): Promise<void> {
   await searchCompany(queryName);
+  if (appState.scopeWarning) {
+    throw new Error(appState.scopeWarning.message);
+  }
   if (appState.candidates.length !== 1) {
     throw new Error('找到多个候选企业，请先选择正确企业后再生成画像。');
   }

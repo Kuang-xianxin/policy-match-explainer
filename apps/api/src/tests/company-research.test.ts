@@ -3,6 +3,7 @@ import {
   createProfileFromResearchPayload,
   missingFieldsForProfile,
   researchCompaniesWithDoubao,
+  researchCompaniesWithDoubaoDetailed,
   researchFieldSources,
   selectDirectLocalAddress,
   shouldUseDirectArkFallback,
@@ -171,6 +172,88 @@ describe('company research provider', () => {
 
     expect(shouldUseDirectArkFallback(error, 'https://ark.cn-beijing.volces.com/api/v3/responses')).toBe(true);
     expect(shouldUseDirectArkFallback(error, 'https://api.deepseek.com/chat/completions')).toBe(false);
+  });
+
+  it('rejects searched companies outside Longhua instead of treating them as matchable candidates', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        output_text: JSON.stringify({
+          candidates: [
+            {
+              company_name: '深圳市腾讯计算机系统有限公司',
+              credit_code: '91440300708461136T',
+              business_address: '深圳市南山区粤海街道腾讯大厦',
+              district: '南山区',
+              industry: '互联网',
+              main_business: '互联网平台服务。',
+              main_revenue_source: '互联网服务收入',
+              evidence: [
+                {
+                  title: '公开工商信息',
+                  url: 'https://example.com/tencent',
+                  snippet: '注册地址位于深圳市南山区。',
+                  fields: ['company_name', 'business_address', 'district'],
+                  confidence: 0.9
+                }
+              ],
+              confidence: 0.9
+            }
+          ]
+        })
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const detailed = await researchCompaniesWithDoubaoDetailed('腾讯', ['腾讯'], {
+      apiKey: 'test-key',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3/responses',
+      model: 'doubao-seed-2-0-mini-260428',
+      timeoutMs: 1000
+    });
+
+    expect(detailed.candidates).toHaveLength(0);
+    expect(detailed.rejected_companies).toEqual([
+      expect.objectContaining({
+        company_name: '深圳市腾讯计算机系统有限公司',
+        district: '南山区'
+      })
+    ]);
+    await expect(
+      researchCompaniesWithDoubao('腾讯', ['腾讯'], {
+        apiKey: 'test-key',
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/v3/responses',
+        model: 'doubao-seed-2-0-mini-260428',
+        timeoutMs: 1000
+      })
+    ).resolves.toHaveLength(0);
+  });
+
+  it('does not coerce an out-of-scope research payload into a Longhua enterprise profile', () => {
+    const outsidePayload: CompanyResearchPayload = {
+      source_type: 'official_public_page',
+      query_name: '腾讯',
+      company_name: '深圳市腾讯计算机系统有限公司',
+      credit_code: '91440300708461136T',
+      registered_year: 1998,
+      business_address: '深圳市南山区粤海街道腾讯大厦',
+      district: '南山区',
+      industry: '互联网',
+      main_business: '互联网平台服务。',
+      main_revenue_source: '互联网服务收入',
+      evidence: [
+        {
+          title: '公开工商信息',
+          url: 'https://example.com/tencent',
+          snippet: '注册地址位于深圳市南山区。',
+          fields: ['company_name', 'business_address', 'district'],
+          confidence: 0.9
+        }
+      ],
+      confidence: 0.9
+    };
+
+    expect(() => createProfileFromResearchPayload(outsidePayload, {})).toThrow('龙华区');
   });
 
   it('maps evidence-backed research payload into a useful enterprise profile', () => {
