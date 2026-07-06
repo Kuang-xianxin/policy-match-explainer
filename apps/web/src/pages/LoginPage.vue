@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { LogIn, Save, ShieldCheck } from 'lucide-vue-next';
+import { Eye, EyeOff, LogIn, Save, ShieldCheck } from 'lucide-vue-next';
 import { appState, login, register } from '../state/app-state';
+import { passwordInputType, passwordToggleLabel } from '../utils/password-visibility';
 
 const router = useRouter();
 const email = ref('demo@example.com');
 const password = ref('secret123');
 const displayName = ref('演示用户');
 const errorText = ref('');
+const isPasswordVisible = ref(false);
+const passwordType = computed(() => passwordInputType(isPasswordVisible.value));
+const passwordVisibilityLabel = computed(() => passwordToggleLabel(isPasswordVisible.value));
+
+function togglePasswordVisibility() {
+  isPasswordVisible.value = !isPasswordVisible.value;
+}
 
 async function submitLogin() {
   errorText.value = '';
@@ -43,7 +51,21 @@ async function submitRegister() {
 
     <div class="auth-panel">
       <label>邮箱<input v-model="email" autocomplete="email" /></label>
-      <label>密码<input v-model="password" type="password" autocomplete="current-password" /></label>
+      <label>密码
+        <div class="password-input-wrap">
+          <input v-model="password" :type="passwordType" autocomplete="current-password" />
+          <button
+            class="password-toggle-button"
+            type="button"
+            :aria-label="passwordVisibilityLabel"
+            :title="passwordVisibilityLabel"
+            @click="togglePasswordVisibility"
+          >
+            <EyeOff v-if="isPasswordVisible" :size="18" />
+            <Eye v-else :size="18" />
+          </button>
+        </div>
+      </label>
       <label>显示名<input v-model="displayName" /></label>
 
       <div class="button-row">
