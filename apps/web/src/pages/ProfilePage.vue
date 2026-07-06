@@ -28,6 +28,7 @@ import {
   type OperationProgressKind
 } from '../utils/match-progress';
 import { profileFieldLabelsFor } from '../utils/profile-field-labels';
+import { savedProfilesActionHint } from '../utils/saved-profile-copy';
 
 const router = useRouter();
 const errorText = ref('');
@@ -57,6 +58,7 @@ const generatedProfileIsInferred = computed(() =>
 const generatedMissingFieldLabels = computed(() =>
   profileFieldLabelsFor(appState.generatedProfileMeta?.missing_fields ?? [])
 );
+const savedProfilesHint = savedProfilesActionHint();
 const showMatchProgress = computed(() => isMatching.value || (isSmartMatching.value && !isLookupProgressVisible.value));
 const visibleMatchProgressSteps = computed(() => matchProgressSteps(matchProgressPhase.value));
 const visibleLookupProgressSteps = computed(() => lookupProgressSteps(lookupProgressPhase.value));
@@ -670,7 +672,10 @@ async function doMatch(profileId: string) {
 
     <section class="panel">
       <div class="section-title">
-        <h2>已保存画像</h2>
+        <div>
+          <h2>已保存画像</h2>
+          <p class="hint">{{ savedProfilesHint }}</p>
+        </div>
         <button class="outline-button" :disabled="appState.isLoadingProfiles" @click="loadProfiles">
           <Search :size="16" />{{ appState.isLoadingProfiles ? '刷新中' : '刷新' }}
         </button>
