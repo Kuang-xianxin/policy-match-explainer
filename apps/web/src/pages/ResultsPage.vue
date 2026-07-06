@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { FileText, RefreshCcw } from 'lucide-vue-next';
 import { appState, generateReport, loadLatestMatchRun } from '../state/app-state';
-import { profileFieldLabel } from '../utils/profile-field-labels';
+import { profileFieldLabel, replaceProfileFieldKeys } from '../utils/profile-field-labels';
 
 const sortedResults = computed(() =>
   [...appState.matchResults].sort((a, b) => Number(b.final_score) - Number(a.final_score))
@@ -169,7 +169,9 @@ async function doGenerateReport() {
             <div v-if="item.risk_notes.length || item.hard_failures.length" class="risk-box">
               <strong>风险提示</strong>
               <ul>
-                <li v-for="risk in [...item.hard_failures, ...item.risk_notes]" :key="`${item.id}-risk-${risk}`">{{ risk }}</li>
+                <li v-for="risk in [...item.hard_failures, ...item.risk_notes]" :key="`${item.id}-risk-${risk}`">
+                  {{ replaceProfileFieldKeys(risk) }}
+                </li>
               </ul>
             </div>
           </section>

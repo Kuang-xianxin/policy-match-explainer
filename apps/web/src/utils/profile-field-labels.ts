@@ -1,4 +1,4 @@
-const profileFieldLabels: Record<string, string> = {
+const profileFieldLabelMap: Record<string, string> = {
   company_name: '企业名称',
   credit_code: '统一社会信用代码',
   city: '所在城市',
@@ -52,5 +52,15 @@ const profileFieldLabels: Record<string, string> = {
 };
 
 export function profileFieldLabel(fieldKey: string): string {
-  return profileFieldLabels[fieldKey] ?? `其他企业信息：${fieldKey}`;
+  return profileFieldLabelMap[fieldKey] ?? `其他企业信息：${fieldKey}`;
+}
+
+export function profileFieldLabelsFor(fieldKeys: string[]): string[] {
+  return fieldKeys.map(profileFieldLabel);
+}
+
+export function replaceProfileFieldKeys(text: string): string {
+  return Object.entries(profileFieldLabelMap)
+    .sort(([left], [right]) => right.length - left.length)
+    .reduce((result, [fieldKey, label]) => result.replaceAll(fieldKey, label), text);
 }

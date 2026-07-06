@@ -185,6 +185,7 @@ export async function loadProfiles(): Promise<void> {
 }
 
 export async function runMatch(profileId: string): Promise<void> {
+  appState.statusText = '正在匹配政策并生成复核说明';
   const data = await api<{ match_run: MatchRun; results: MatchResult[] }>(
     '/api/match-runs',
     appState.token,
@@ -193,7 +194,9 @@ export async function runMatch(profileId: string): Promise<void> {
   appState.matchRun = data.match_run;
   appState.matchResults = data.results;
   appState.report = null;
-  appState.statusText = `匹配完成：${data.results.length} 条政策，已经过 ${data.results[0]?.ai_mode === 'deepseek' ? 'DeepSeek' : 'mock'} 复核`;
+  const aiMode = data.results[0]?.ai_mode;
+  const aiModeLabel = aiMode === 'deepseek' ? 'DeepSeek' : aiMode === 'doubao' ? '豆包' : 'mock';
+  appState.statusText = `匹配完成：${data.results.length} 条政策，已经过 ${aiModeLabel} 复核`;
 }
 
 export async function generateReport(): Promise<void> {

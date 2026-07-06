@@ -18,6 +18,7 @@ import {
   smartGenerateAndMatch,
   startManualProfile
 } from '../state/app-state';
+import { profileFieldLabelsFor } from '../utils/profile-field-labels';
 
 const router = useRouter();
 const errorText = ref('');
@@ -27,9 +28,13 @@ const isGenerating = ref(false);
 const isSaving = ref(false);
 const isMatching = ref(false);
 const isSmartMatching = ref(false);
+const saveAndMatchStatusText = ref('');
 const profile = computed(() => appState.draftProfile);
 const generatedProfileIsInferred = computed(() =>
   appState.generatedProfileMeta?.field_sources.some((item) => item.source_type === 'inferred') ?? false
+);
+const generatedMissingFieldLabels = computed(() =>
+  profileFieldLabelsFor(appState.generatedProfileMeta?.missing_fields ?? [])
 );
 
 function modeLabel(mode?: string): string {
@@ -140,15 +145,23 @@ async function doSaveManual() {
 
 async function doSaveAndMatch() {
   errorText.value = '';
+  saveAndMatchStatusText.value = '';
   if (isMatching.value) return;
   isMatching.value = true;
   try {
+    saveAndMatchStatusText.value = '正在保存企业画像...';
     const saved = await saveManualProfile();
-    if (!saved) return;
+    if (!saved) {
+      saveAndMatchStatusText.value = '没有可保存的画像，请先生成或填写企业画像。';
+      return;
+    }
+    saveAndMatchStatusText.value = '画像已保存，正在匹配政策...';
     await runMatch(saved.id);
+    saveAndMatchStatusText.value = '匹配完成，正在打开结果页...';
     await router.push('/results');
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '保存并匹配失败';
+    saveAndMatchStatusText.value = '';
   } finally {
     isMatching.value = false;
   }
@@ -251,8 +264,9 @@ async function doMatch(profileId: string) {
       <div v-if="appState.generatedProfileMeta" class="lookup-plan">
         <span>画像生成：{{ modeLabel(appState.generatedProfileMeta.ai_mode) }}</span>
         <span>置信度：{{ Math.round(appState.generatedProfileMeta.ai_confidence * 100) }}%</span>
-        <span>待补字段：{{ appState.generatedProfileMeta.missing_fields.join('、') }}</span>
+        <span>待补字段：{{ generatedMissingFieldLabels.length ? generatedMissingFieldLabels.join('、') : '暂无' }}</span>
       </div>
+      <p v-if="saveAndMatchStatusText" class="hint">{{ saveAndMatchStatusText }}</p>
       <div v-if="generatedProfileIsInferred" class="warning-panel">
         当前画像来自未验证 AI 草稿。企业名称、统一社会信用代码、经营地址、成立年份和资质状态都需要人工确认后才能用于正式申报。
       </div>
