@@ -849,10 +849,16 @@ export function createApp() {
       res.status(404).json({ error_code: 'NOT_FOUND', message: 'Match run not found.' });
       return;
     }
-    const resultsResult = await pool.query('SELECT * FROM match_results WHERE match_run_id = $1 AND user_id = $2', [
-      req.params.id,
-      req.user.id
-    ]);
+    const resultsResult = await pool.query(
+      `
+      SELECT match_results.*, policies.title AS policy_title, policies.category, policies.source_url
+      FROM match_results
+      JOIN policies ON policies.id = match_results.policy_id
+      WHERE match_results.match_run_id = $1 AND match_results.user_id = $2
+      ORDER BY match_results.final_score DESC
+      `,
+      [req.params.id, req.user.id]
+    );
     const report = await generateReport(run.profile_snapshot as EnterpriseProfile, resultsResult.rows, aiConfig());
     const created = await pool.query(
       `

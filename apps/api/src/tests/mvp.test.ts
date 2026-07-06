@@ -139,6 +139,8 @@ describe('policy match MVP flow', () => {
       .send();
     expect(report.status).toBe(201);
     expect(report.body.report.content_text).toContain('综合结论');
+    expect(report.body.report.content_text).toContain('材料准备清单');
+    expect(report.body.report.content_text).toContain('龙华区');
   });
 
   it('blocks a non-registry abbreviation instead of inventing a formal company name', async () => {

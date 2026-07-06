@@ -288,21 +288,110 @@ export async function reviewPolicyMatch(
   }
 }
 
+type ReportMatchResult = BaselineMatchResult & AiMatchReview & {
+  final_score?: number;
+  final_level?: string;
+  source_url?: string;
+  category?: string;
+  policy?: { title?: string; category?: string; source_url?: string };
+};
+
+const reportLevelLabels: Record<string, string> = {
+  recommended: '优先推荐',
+  potential: '可重点关注',
+  need_more_info: '需要补充信息',
+  not_recommended: '暂不推荐'
+};
+
+function reportLevel(result: ReportMatchResult): string {
+  return result.final_level ?? result.baseline_level;
+}
+
+function reportScore(result: ReportMatchResult): number {
+  return Number(result.final_score ?? result.baseline_score ?? 0);
+}
+
+function reportPolicyTitle(result: ReportMatchResult, index: number): string {
+  return result.policy_title || result.policy?.title || `政策 ${index + 1}`;
+}
+
+function uniqueText(values: string[]): string[] {
+  return Array.from(new Set(values.map((item) => item.trim()).filter(Boolean)));
+}
+
+function fallbackReport(
+  profile: EnterpriseProfile,
+  results: ReportMatchResult[]
+): string {
+  const sortedResults = [...results].sort((a, b) => reportScore(b) - reportScore(a));
+  const recommended = sortedResults.filter((item) => reportLevel(item) === 'recommended').length;
+  const potential = sortedResults.filter((item) => reportLevel(item) === 'potential').length;
+  const needMoreInfo = sortedResults.filter((item) => reportLevel(item) === 'need_more_info').length;
+  const hardFailureCount = sortedResults.filter((item) => item.hard_failures.length > 0).length;
+  const topPolicies = sortedResults.slice(0, 3);
+  const missingFields = uniqueText([
+    ...sortedResults.flatMap((item) => item.missing_conditions.map((condition) => condition.field_key)),
+    ...sortedResults.flatMap((item) => item.ai_missing_fields)
+  ]).slice(0, 6);
+  const suggestedActions = uniqueText(sortedResults.flatMap((item) => item.ai_suggested_actions)).slice(0, 5);
+  const risks = uniqueText([
+    ...sortedResults.flatMap((item) => item.hard_failures),
+    ...sortedResults.flatMap((item) => item.risk_notes)
+  ]).slice(0, 5);
+
+  const policyLines = topPolicies.length
+    ? topPolicies.map((item, index) => {
+        const level = reportLevelLabels[reportLevel(item)] ?? reportLevel(item);
+        const matched = item.matched_conditions.length;
+        const missing = item.missing_conditions.length;
+        return `${index + 1}. ${reportPolicyTitle(item, index)}：当前 ${reportScore(item)} 分，状态为“${level}”。已命中 ${matched} 项条件，仍有 ${missing} 项信息需要补充或核对。`;
+      })
+    : ['1. 暂无可排序政策结果，建议先补齐企业画像后重新匹配。'];
+  const actionLines = [
+    '1. 先核对政策原文和申报窗口：确认政策是否仍在有效期、是否有年度申报通知、是否需要线上系统填报。',
+    '2. 再补齐影响评分的关键材料：优先准备研发费用、纳税证明、项目预算、知识产权和资质证明。',
+    '3. 最后复跑匹配并筛选申报顺序：先处理分数高且无硬性失败的政策，再评估需要整改的政策。'
+  ];
+  const aiActionLines = suggestedActions.map((action, index) => `${index + 4}. ${action}`);
+  const missingLine = missingFields.length
+    ? `建议优先补充字段：${missingFields.join('、')}。`
+    : '当前没有明显缺失字段，但正式申报前仍应核对证明材料原件和政策附件要求。';
+  const riskLines = risks.length
+    ? risks.map((risk, index) => `${index + 1}. ${risk}`)
+    : ['1. 未发现明确硬性失败项，但本报告不能替代政策主管部门的最终审核。'];
+
+  return [
+    '综合结论',
+    `${profile.company_name} 当前画像显示具备龙华区政策匹配基础。系统已识别优先推荐政策 ${recommended} 项、可重点关注政策 ${potential} 项、需要补充信息政策 ${needMoreInfo} 项、存在硬性失败或暂不推荐政策 ${hardFailureCount} 项。`,
+    `${profile.industry}、${profile.main_business}、${profile.project_direction} 等方向可以作为解释匹配理由的核心依据，但营收、纳税、研发投入和项目预算仍应以企业真实材料为准。`,
+    '',
+    '申报优先级',
+    ...policyLines,
+    '',
+    '可行建议',
+    ...actionLines,
+    ...aiActionLines,
+    '',
+    '材料准备清单',
+    `- 企业主体材料：营业执照、统一社会信用代码、注册地址或经营地址证明、无重大违法违规说明。`,
+    `- 财税经营材料：上一年度营收、利润、纳税证明、税务信用等级及社保缴纳情况。`,
+    `- 研发项目材料：研发费用辅助账、研发人员清单、知识产权清单、项目预算、项目阶段和已落地成果。`,
+    `- 政策对应材料：围绕 ${topPolicies.map((item, index) => reportPolicyTitle(item, index)).join('、') || '目标政策'} 核对专项申报指南和附件模板。`,
+    missingLine,
+    '',
+    '风险与限制',
+    ...riskLines,
+    `${riskLines.length + 1}. 本报告仅基于当前画像和本地政策规则生成；如政策原文、申报指南或企业经营数据发生变化，应重新匹配。`
+  ].join('\n');
+}
+
 function mockReport(
   profile: EnterpriseProfile,
   results: Array<BaselineMatchResult & AiMatchReview>
 ): { content_text: string; ai_mode: 'mock' } {
-  const recommended = results.filter((item) => item.baseline_level === 'recommended').length;
-  const potential = results.filter((item) => item.baseline_level === 'potential').length;
   return {
     ai_mode: 'mock',
-    content_text: [
-      `综合结论：${profile.company_name} 当前画像显示具备龙华区政策匹配基础。`,
-      `推荐关注政策 ${recommended} 项，可能匹配政策 ${potential} 项。`,
-      '主要优势：企业位于深圳市龙华区，业务方向覆盖 AI、数据治理和软件服务，研发投入比例较高。',
-      '主要短板：正式申报前仍需核对政策原文、申报窗口、纳税证明、研发费用辅助账和项目预算材料。',
-      '下一步建议：优先处理推荐关注政策，补齐缺失字段后再复跑匹配。'
-    ].join('\n')
+    content_text: fallbackReport(profile, results)
   };
 }
 
@@ -319,7 +408,13 @@ export async function generateReport(
       [
         '你是企业惠企政策评估报告助手。',
         '不得编造政策、申报入口或企业经营数据。',
-        '必须基于输入的匹配结果写出简洁中文报告，并输出 JSON: { "content_text": string }。'
+        '必须基于输入的企业画像、规则基线和 AI 复核结果写详细中文报告。',
+        '报告必须包含这些标题：综合结论、申报优先级、可行建议、材料准备清单、风险与限制。',
+        '可行建议必须按可执行顺序写，说明先做什么、为什么做、需要准备什么。',
+        '材料清单必须区分企业主体材料、财税经营材料、研发项目材料和政策对应材料。',
+        '风险与限制必须说明硬性失败项、待补字段和需要核对政策原文/申报窗口的事项。',
+        '不要虚构申报时间、金额、网址、政策名称或企业未提供的经营数据。',
+        '输出 JSON: { "content_text": string }。'
       ].join('\n'),
       { profile, results }
     );

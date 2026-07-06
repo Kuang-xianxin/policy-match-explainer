@@ -11,7 +11,7 @@ describe('report feedback helpers', () => {
     expect(reportNotice('completed')).toEqual({
       tone: 'success',
       title: '报告已生成',
-      message: '综合评估报告已更新到下方报告区，可继续查看建议动作和申报风险。'
+      message: '综合评估报告已更新到下方报告区，可查看申报优先级、材料清单和风险限制。'
     });
   });
 });

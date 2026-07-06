@@ -87,9 +87,6 @@ async function doGenerateReport() {
         <h1>匹配结果和报告</h1>
         <p>匹配先生成规则基线，再通过 {{ reviewMode === 'deepseek' ? 'DeepSeek API' : 'mock 开发模式' }} 做语义复核和说明增强。</p>
       </div>
-      <button class="outline-button" :disabled="!appState.matchRun || isGeneratingReport" @click="doGenerateReport">
-        <FileText :size="16" />{{ reportButtonText }}
-      </button>
     </div>
 
     <p v-if="errorText" class="error-text">{{ errorText }}</p>
@@ -106,8 +103,13 @@ async function doGenerateReport() {
     <section v-if="appState.matchRun" class="report-action-panel">
       <div>
         <span class="mode-pill">综合报告</span>
-        <h2>生成面向用户的政策匹配建议报告</h2>
-        <p>报告会把规则命中、DeepSeek 复核、建议动作和风险提示整理成一段可直接阅读的文字。</p>
+        <h2>生成可执行的申报建议报告</h2>
+        <p>报告会按申报优先级、可行建议、材料准备清单和风险限制展开，便于直接安排下一步工作。</p>
+        <div class="report-action-points" aria-label="报告内容重点">
+          <span>申报优先级</span>
+          <span>材料清单</span>
+          <span>风险限制</span>
+        </div>
       </div>
       <button class="report-primary-button" :disabled="isGeneratingReport" @click="doGenerateReport">
         <RefreshCcw v-if="isGeneratingReport" :size="18" />
@@ -234,12 +236,15 @@ async function doGenerateReport() {
       <div class="section-title">
         <div>
           <h2>综合报告</h2>
-          <p class="hint">报告生成后会在这里显示，并保留在当前匹配结果中。</p>
+          <p class="hint">报告生成后会在这里显示，并保留在当前匹配结果中，重点给出可执行的申报准备建议。</p>
         </div>
         <span class="mode-pill">{{ appState.report?.model_name || (appState.aiStatus?.configured ? appState.aiStatus.model : 'mock') }}</span>
       </div>
       <pre v-if="appState.report">{{ appState.report.content_text }}</pre>
-      <p v-else class="hint">生成报告后会显示在这里。</p>
+      <div v-else class="report-empty-state">
+        <FileText :size="22" />
+        <p>点击上方“生成综合评估报告”后，这里会显示详细结论、建议动作、材料清单和风险提示。</p>
+      </div>
     </section>
   </section>
 </template>

@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @policy-match/api\" \"npm run dev -w @policy-match/web\"",
     "build": "npm run build -w @policy-match/shared && npm run build -w @policy-match/matcher && npm run build -w @policy-match/ai && npm run build -w @policy-match/api && npm run build -w @policy-match/web",
-    "test": "npm run test -w @policy-match/matcher && npm run test -w @policy-match/api && npm run test -w @policy-match/web",
+    "test": "npm run test -w @policy-match/matcher && npm run test -w @policy-match/ai && npm run test -w @policy-match/api && npm run test -w @policy-match/web",
     "db:up": "docker compose up -d postgres",
     "db:check": "npm run db:check -w @policy-match/api",
     "db:migrate": "npm run db:migrate -w @policy-match/api",
