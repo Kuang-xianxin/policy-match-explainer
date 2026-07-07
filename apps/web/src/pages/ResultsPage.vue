@@ -5,6 +5,7 @@ import { appState, generateReport, loadLatestMatchRun } from '../state/app-state
 import { matchCompanySummary } from '../utils/match-company-summary';
 import { profileFieldLabel, replaceProfileFieldKeys } from '../utils/profile-field-labels';
 import { reportActionText, reportNotice, type ReportNoticeState } from '../utils/report-feedback';
+import { renderReportMarkdown } from '../utils/report-markdown';
 
 const sortedResults = computed(() =>
   [...appState.matchResults].sort((a, b) => Number(b.final_score) - Number(a.final_score))
@@ -22,6 +23,7 @@ const reportNoticeState = ref<ReportNoticeState>('idle');
 const reportSection = ref<HTMLElement | null>(null);
 const currentReportNotice = computed(() => reportNotice(reportNoticeState.value));
 const reportButtonText = computed(() => reportActionText(isGeneratingReport.value));
+const reportBlocks = computed(() => renderReportMarkdown(appState.report?.content_text ?? ''));
 
 function levelLabel(level: string): string {
   const labels: Record<string, string> = {
@@ -240,7 +242,20 @@ async function doGenerateReport() {
         </div>
         <span class="mode-pill">{{ appState.report?.model_name || (appState.aiStatus?.configured ? appState.aiStatus.model : 'mock') }}</span>
       </div>
-      <pre v-if="appState.report">{{ appState.report.content_text }}</pre>
+      <div v-if="appState.report" class="report-markdown">
+        <template v-for="(block, index) in reportBlocks" :key="`${block.type}-${index}`">
+          <h2 v-if="block.type === 'heading' && block.level <= 2">{{ block.text }}</h2>
+          <h3 v-else-if="block.type === 'heading' && block.level === 3">{{ block.text }}</h3>
+          <h4 v-else-if="block.type === 'heading'">{{ block.text }}</h4>
+          <ol v-else-if="block.type === 'list' && block.ordered">
+            <li v-for="item in block.items" :key="`${index}-${item}`">{{ item }}</li>
+          </ol>
+          <ul v-else-if="block.type === 'list'">
+            <li v-for="item in block.items" :key="`${index}-${item}`">{{ item }}</li>
+          </ul>
+          <p v-else>{{ block.text }}</p>
+        </template>
+      </div>
       <div v-else class="report-empty-state">
         <FileText :size="22" />
         <p>点击上方“生成综合评估报告”后，这里会显示详细结论、建议动作、材料清单和风险提示。</p>

@@ -753,18 +753,59 @@ label {
   padding: 18px 20px;
 }
 
-.report-panel pre {
-  overflow-x: auto;
-  white-space: pre-wrap;
+.report-markdown {
   border: 1px solid #d9e9e4;
   border-radius: 8px;
   background: #fbfdfc;
   color: #20332e;
-  font-family: inherit;
   font-size: 15px;
   line-height: 1.8;
-  margin: 0;
   padding: 18px;
+}
+
+.report-markdown h2,
+.report-markdown h3,
+.report-markdown h4,
+.report-markdown p,
+.report-markdown ul,
+.report-markdown ol {
+  margin: 0;
+}
+
+.report-markdown h2 {
+  border-bottom: 1px solid #d9e9e4;
+  color: #12322e;
+  font-size: 20px;
+  margin-top: 18px;
+  padding-bottom: 8px;
+}
+
+.report-markdown h2:first-child {
+  margin-top: 0;
+}
+
+.report-markdown h3 {
+  color: #146356;
+  font-size: 17px;
+  margin-top: 16px;
+}
+
+.report-markdown h4 {
+  color: #20332e;
+  font-size: 15px;
+  margin-top: 14px;
+}
+
+.report-markdown p {
+  margin-top: 10px;
+}
+
+.report-markdown ul,
+.report-markdown ol {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-left: 22px;
 }
 
 .report-empty-state {

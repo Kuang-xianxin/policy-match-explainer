@@ -90,13 +90,14 @@ describe('generateReport', () => {
       apiKey: ''
     });
 
-    expect(report.content_text).toContain('综合结论');
+    expect(report.content_text).toContain('## 综合结论');
     expect(report.content_text).toContain('申报优先级');
     expect(report.content_text).toContain('可行建议');
     expect(report.content_text).toContain('材料准备清单');
     expect(report.content_text).toContain('风险与限制');
     expect(report.content_text).toContain('先核对政策原文和申报窗口');
     expect(report.content_text).toContain('龙华区科技创新企业培育扶持');
+    expect(report.content_text).not.toContain('####');
     expect(report.content_text.split('\n').length).toBeGreaterThanOrEqual(10);
   });
 });

@@ -9,4 +9,11 @@ describe('ResultsPage layout', () => {
     expect(reportActionCount).toBe(1);
     expect(source).not.toContain('<button class="outline-button" :disabled="!appState.matchRun || isGeneratingReport"');
   });
+
+  it('renders generated reports as markdown blocks instead of raw preformatted text', () => {
+    const source = readFileSync(new URL('./ResultsPage.vue', import.meta.url), 'utf8');
+
+    expect(source).toContain('renderReportMarkdown');
+    expect(source).not.toContain('<pre v-if="appState.report">');
+  });
 });
